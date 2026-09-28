@@ -381,7 +381,7 @@ export const SettingsView: React.FC = () => {
               </label>
               <input
                 type="text"
-                placeholder="fexambythongtran"
+                placeholder="fexam-pro"
                 value={firebaseProjectId}
                 onChange={(e) => setFirebaseProjectId(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-xs focus:ring-2 focus:ring-brand-500 font-mono"
@@ -432,7 +432,7 @@ export const SettingsView: React.FC = () => {
               </label>
               <input
                 type="text"
-                placeholder="dvpj3etcm"
+                placeholder="fexam-cloud"
                 value={cloudName}
                 onChange={(e) => setCloudName(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-xs focus:ring-2 focus:ring-brand-500"
@@ -445,7 +445,7 @@ export const SettingsView: React.FC = () => {
               </label>
               <input
                 type="text"
-                placeholder="fexambythongtran"
+                placeholder="fexam_preset"
                 value={uploadPreset}
                 onChange={(e) => setUploadPreset(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-xs focus:ring-2 focus:ring-brand-500"

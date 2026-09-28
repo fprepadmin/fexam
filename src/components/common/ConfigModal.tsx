@@ -110,7 +110,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose }) => 
                 </label>
                 <input
                   type="text"
-                  placeholder="fexambythongtran"
+                  placeholder="fexam_preset"
                   value={uploadPreset}
                   onChange={(e) => setUploadPreset(e.target.value)}
                   className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"

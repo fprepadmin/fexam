@@ -630,7 +630,7 @@ Câu 3: Tính diện tích hình phẳng giới hạn bởi parabol $y = x^2$ v�
 
           <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left text-[11px] text-slate-400">
             <div>© 2026 Dự án FEXAM — FPREP LMS.</div>
-            <div className="font-medium text-slate-500">Quản trị viên: thongtnmfct31178@gmail.com</div>
+            <div className="font-medium text-slate-500">Email hỗ trợ: fprep.thptqg@gmail.com</div>
           </div>
         </div>
       </footer>
