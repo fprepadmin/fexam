@@ -8,7 +8,9 @@ import {
   fetchTeacherFromFirestore,
   fetchTeacherByEmailOrUid,
   syncTeacherToFirestore,
+  syncAllTeachersToFirestore,
   subscribeTeachersFirestore,
+  deleteTeacherFromFirestore,
 } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -18,8 +20,9 @@ interface AuthContextType {
   role: 'admin' | 'teacher' | 'student';
   setRole: (role: 'admin' | 'teacher' | 'student') => void;
   updateProfile: (profile: Partial<TeacherUser>) => void;
-  saveTeacher: (teacher: TeacherUser) => void;
-  deleteTeacher: (id: string) => void;
+  saveTeacher: (teacher: TeacherUser) => Promise<{ success: boolean; error?: string }>;
+  deleteTeacher: (id: string) => Promise<void>;
+  syncAllTeachersToFirebase: () => Promise<{ success: boolean; count: number; error?: string }>;
   loginGoogle: () => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   refreshTeachers: () => void;
@@ -156,14 +159,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRoleState(newRole);
   };
 
-  const saveTeacher = (teacher: TeacherUser) => {
+  const saveTeacher = async (teacher: TeacherUser): Promise<{ success: boolean; error?: string }> => {
     storage.saveTeacher(teacher);
     setAllTeachers(storage.getAllTeachers());
+    const res = await syncTeacherToFirestore(teacher);
+    return res;
   };
 
-  const deleteTeacher = (id: string) => {
+  const deleteTeacher = async (id: string): Promise<void> => {
     storage.deleteTeacher(id);
     setAllTeachers(storage.getAllTeachers());
+    await deleteTeacherFromFirestore(id);
+  };
+
+  const syncAllTeachersToFirebase = async (): Promise<{ success: boolean; count: number; error?: string }> => {
+    const list = storage.getAllTeachers();
+    const res = await syncAllTeachersToFirestore(list);
+    return res;
   };
 
   const updateProfile = (profile: Partial<TeacherUser>) => {
@@ -276,6 +288,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateProfile,
         saveTeacher,
         deleteTeacher,
+        syncAllTeachersToFirebase,
         loginGoogle,
         logout,
         refreshTeachers,

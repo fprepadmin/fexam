@@ -128,46 +128,68 @@ export const subscribeTeachersFirestore = (callback: (teachers: TeacherUser[]) =
   if (!firestoreDb) return null;
   const colRef = collection(firestoreDb, 'teachers');
   return onSnapshot(colRef, (snapshot) => {
-    const map = new Map<string, { docId: string; data: TeacherUser }>();
-    const duplicatesToDelete: string[] = [];
-
+    const list: TeacherUser[] = [];
     snapshot.forEach((d) => {
-      const teacher = d.data() as TeacherUser;
-      const emailKey = (teacher.email || '').trim().toLowerCase();
-      if (!emailKey) return;
+      const data = d.data() as TeacherUser;
+      if (data && data.email) {
+        list.push({ ...data, id: data.id || d.id });
+      }
+    });
 
-      if (!map.has(emailKey)) {
-        map.set(emailKey, { docId: d.id, data: teacher });
+    // Deduplicate by email in memory
+    const map = new Map<string, TeacherUser>();
+    list.forEach((t) => {
+      const email = t.email.trim().toLowerCase();
+      if (!map.has(email)) {
+        map.set(email, t);
       } else {
-        const existingEntry = map.get(emailKey)!;
-        const currentIsAuthUid = !d.id.startsWith('teacher-');
-        const existingIsAuthUid = !existingEntry.docId.startsWith('teacher-');
-
-        if (currentIsAuthUid && !existingIsAuthUid) {
-          // Keep the actual Auth UID doc and schedule old temporary ID for deletion
-          duplicatesToDelete.push(existingEntry.docId);
-          map.set(emailKey, { docId: d.id, data: teacher });
-        } else {
-          // Current is older/duplicate, schedule for deletion
-          duplicatesToDelete.push(d.id);
+        const current = map.get(email)!;
+        if (current.id.startsWith('teacher-') && !t.id.startsWith('teacher-')) {
+          map.set(email, t);
         }
       }
     });
 
-    // Clean up duplicate orphan documents in Firestore
-    duplicatesToDelete.forEach((dupId) => {
-      deleteTeacherFromFirestore(dupId);
-    });
-
-    const uniqueList = Array.from(map.values()).map((v) => v.data);
-    callback(uniqueList);
+    callback(Array.from(map.values()));
   }, (err) => {
     console.warn('Firestore subscribeTeachers error:', err);
   });
 };
 
-export const syncTeacherToFirestore = async (teacher: TeacherUser, oldId?: string) => {
-  if (!firestoreDb) return;
+export const fetchAllTeachersFromFirestore = async (): Promise<TeacherUser[]> => {
+  if (!firestoreDb) return [];
+  try {
+    const colRef = collection(firestoreDb, 'teachers');
+    const snap = await getDocs(colRef);
+    const list: TeacherUser[] = [];
+    snap.forEach((d) => {
+      const data = d.data() as TeacherUser;
+      if (data && data.email) {
+        list.push({ ...data, id: data.id || d.id });
+      }
+    });
+
+    const map = new Map<string, TeacherUser>();
+    list.forEach((t) => {
+      const email = t.email.trim().toLowerCase();
+      if (!map.has(email)) {
+        map.set(email, t);
+      } else {
+        const current = map.get(email)!;
+        if (current.id.startsWith('teacher-') && !t.id.startsWith('teacher-')) {
+          map.set(email, t);
+        }
+      }
+    });
+    return Array.from(map.values());
+  } catch (err) {
+    console.warn('Firestore fetchAllTeachers error:', err);
+    return [];
+  }
+};
+
+export const syncTeacherToFirestore = async (teacher: TeacherUser, oldId?: string): Promise<{ success: boolean; error?: string }> => {
+  if (!firestoreDb) return { success: false, error: 'Chưa kết nối Firebase' };
   try {
     const clean = sanitizeForFirebase(teacher);
     const teacherRef = doc(firestoreDb, 'teachers', clean.id);
@@ -181,27 +203,36 @@ export const syncTeacherToFirestore = async (teacher: TeacherUser, oldId?: strin
       }
     }
 
-    // Also clean up any other orphan documents in Firestore sharing this exact email
-    const emailLower = clean.email.trim().toLowerCase();
-    const colRef = collection(firestoreDb, 'teachers');
-    const q = query(colRef, where('email', '==', emailLower));
-    const querySnap = await getDocs(q);
-    querySnap.forEach((d) => {
-      if (d.id !== clean.id) {
-        deleteDoc(doc(firestoreDb, 'teachers', d.id)).catch(() => {});
-        if (realtimeDb) {
-          remove(ref(realtimeDb, `teachers/${d.id}`)).catch(() => {});
-        }
-      }
-    });
-
-    // Also mirror to Realtime Database if available
+    // Mirror to Realtime Database if available
     if (realtimeDb) {
       const rRef = ref(realtimeDb, `teachers/${clean.id}`);
       set(rRef, clean).catch(() => {});
     }
-  } catch (err) {
-    console.warn('Firestore syncTeacher error:', err);
+    return { success: true };
+  } catch (err: any) {
+    console.error('Firestore syncTeacher error:', err);
+    return { success: false, error: err?.message || 'Lỗi lưu Firestore' };
+  }
+};
+
+export const syncAllTeachersToFirestore = async (teachers: TeacherUser[]): Promise<{ success: boolean; count: number; error?: string }> => {
+  if (!firestoreDb) return { success: false, count: 0, error: 'Chưa kết nối Firebase' };
+  try {
+    let saved = 0;
+    for (const t of teachers) {
+      const clean = sanitizeForFirebase(t);
+      const teacherRef = doc(firestoreDb, 'teachers', clean.id);
+      await setDoc(teacherRef, clean, { merge: true });
+      if (realtimeDb) {
+        const rRef = ref(realtimeDb, `teachers/${clean.id}`);
+        set(rRef, clean).catch(() => {});
+      }
+      saved++;
+    }
+    return { success: true, count: saved };
+  } catch (err: any) {
+    console.error('Firestore syncAllTeachers error:', err);
+    return { success: false, count: 0, error: err?.message || 'Lỗi đồng bộ danh sách giáo viên' };
   }
 };
 

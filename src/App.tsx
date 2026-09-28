@@ -310,6 +310,17 @@ function MainApp() {
     navigate('student_portal', { studentFlowState: 'result' });
   };
 
+  const handleStudentViewResult = (
+    submission: ExamSubmission,
+    exam: Exam,
+    session?: ExamSession
+  ) => {
+    setActiveStudentExam(exam);
+    setActiveStudentSession(session);
+    setLastSubmission(submission);
+    navigate('student_portal', { studentFlowState: 'result' });
+  };
+
   // ----------------------------------------------------
   // 1. LANDING PAGE
   // ----------------------------------------------------
@@ -360,6 +371,7 @@ function MainApp() {
         <StudentEntry
           initialExamCode={urlExamCode}
           onEnterExam={handleStudentEnterExam}
+          onViewResult={handleStudentViewResult}
           onBackToTeacher={() => {
             setRole('teacher');
             navigate('landing');
@@ -387,6 +399,7 @@ function MainApp() {
         <StudentEntry
           initialExamCode={urlExamCode}
           onEnterExam={handleStudentEnterExam}
+          onViewResult={handleStudentViewResult}
           onBackToTeacher={() => {
             setRole('teacher');
             navigate('landing');
@@ -412,6 +425,7 @@ function MainApp() {
         <StudentEntry
           initialExamCode={urlExamCode}
           onEnterExam={handleStudentEnterExam}
+          onViewResult={handleStudentViewResult}
           onBackToTeacher={() => {
             setRole('teacher');
             navigate('landing');

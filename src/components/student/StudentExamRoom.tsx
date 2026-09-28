@@ -102,6 +102,8 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
   }, [violations]);
 
   const [teacherMessage, setTeacherMessage] = useState<string | null>(null);
+  const dismissedNoteRef = useRef<string | null>(null);
+  const processedBonusMinutesRef = useRef<number>(0);
   const isSubmittingRef = useRef(false);
 
   // Submit confirmation modal
@@ -162,16 +164,29 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
         handleFinalSubmit();
         return;
       }
-      if (currentSub.bonusMinutes && currentSub.bonusMinutes > 0) {
-        setSecondsRemaining((prev) => prev + currentSub.bonusMinutes! * 60);
+      if (currentSub.bonusMinutes && currentSub.bonusMinutes > processedBonusMinutesRef.current) {
+        const addedMinutes = currentSub.bonusMinutes - processedBonusMinutesRef.current;
+        processedBonusMinutesRef.current = currentSub.bonusMinutes;
+        setSecondsRemaining((prev) => prev + addedMinutes * 60);
         soundEngine.playNotice();
       }
-      if (currentSub.teacherNote && currentSub.teacherNote !== teacherMessage) {
+      if (
+        currentSub.teacherNote &&
+        currentSub.teacherNote.trim() &&
+        currentSub.teacherNote !== dismissedNoteRef.current
+      ) {
         setTeacherMessage(currentSub.teacherNote);
         soundEngine.playWarning();
       }
     }
-  }, [submissions, submissionId, teacherMessage]);
+  }, [submissions, submissionId]);
+
+  const handleDismissTeacherMessage = () => {
+    if (teacherMessage) {
+      dismissedNoteRef.current = teacherMessage;
+    }
+    setTeacherMessage(null);
+  };
 
   // 3. Countdown Timer
   useEffect(() => {
@@ -425,14 +440,15 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
 
         {/* Teacher Broadcast Message Banner */}
         {teacherMessage && (
-          <div className="bg-amber-500 text-white px-6 py-2.5 text-xs font-bold flex items-center justify-between shadow-sm animate-bounce">
+          <div className="bg-amber-500 text-white px-6 py-2.5 text-xs font-bold flex items-center justify-between shadow-sm animate-bounce z-50">
             <div className="flex items-center gap-2">
-              <Volume2 className="w-4 h-4" />
+              <Volume2 className="w-4 h-4 shrink-0" />
               <span>Giám thị nhắc nhở: {teacherMessage}</span>
             </div>
             <button
-              onClick={() => setTeacherMessage(null)}
-              className="text-xs bg-black/20 hover:bg-black/30 px-2.5 py-0.5 rounded-lg"
+              type="button"
+              onClick={handleDismissTeacherMessage}
+              className="text-xs bg-black/20 hover:bg-black/35 px-3 py-1 rounded-lg font-extrabold cursor-pointer transition-colors shrink-0 ml-4 shadow-2xs"
             >
               Đã hiểu
             </button>

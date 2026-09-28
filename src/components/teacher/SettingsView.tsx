@@ -23,63 +23,45 @@ import { initFirebase, DEFAULT_FIREBASE_CONFIG } from '../../services/firebase';
 const FIRESTORE_RULES_CONTENT = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 1. Helper Functions & RBAC
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    function isSuperAdmin() {
-      return isAuthenticated() &&
-        request.auth.token.email != null &&
-        request.auth.token.email.lower() == 'thongtnmfct31178@gmail.com' &&
-        request.auth.token.email_verified == true;
-    }
-    function isApprovedTeacher() {
-      return isSuperAdmin() || (
-        isAuthenticated() &&
-        exists(/databases/$(database)/documents/teachers/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.status in ['active', 'approved']
-      );
-    }
-
-    // 2. Teachers Collection
+    // 1. Teachers Collection
     match /teachers/{teacherId} {
-      allow read: if isSuperAdmin() || (isAuthenticated() && (resource.data.status in ['active', 'approved'] || request.auth.uid == teacherId));
-      allow create: if isSuperAdmin() || (isAuthenticated() && (request.auth.uid == teacherId || request.resource.data.id == request.auth.uid) && request.resource.data.role == 'teacher' && request.resource.data.status in ['pending', 'active']);
-      allow update: if isSuperAdmin() || (isAuthenticated() && request.auth.uid == teacherId && request.resource.data.role == resource.data.role && request.resource.data.status == resource.data.status);
-      allow delete: if isSuperAdmin();
+      allow read, write: if true;
     }
 
-    // 3. Exams Collection
+    // 2. Exams Collection
     match /exams/{examId} {
       allow read: if true;
-      allow create: if isApprovedTeacher() && (isSuperAdmin() || request.resource.data.authorId == request.auth.uid || request.resource.data.authorEmail.lower() == request.auth.token.email.lower());
-      allow update: if isApprovedTeacher() && (isSuperAdmin() || resource.data.authorId == request.auth.uid || resource.data.authorEmail.lower() == request.auth.token.email.lower()) && request.resource.data.id == resource.data.id;
-      allow delete: if isApprovedTeacher() && (isSuperAdmin() || resource.data.authorId == request.auth.uid || resource.data.authorEmail.lower() == request.auth.token.email.lower());
+      allow create, update: if request.resource.data.id == examId;
+      allow delete: if true;
     }
 
-    // 4. Sessions (Ca thi & Ca ôn tập)
+    // 3. Sessions (Ca thi & Ca ôn tập)
     match /sessions/{sessionId} {
       allow read: if true;
-      allow create, update, delete: if isApprovedTeacher();
+      allow create, update: if request.resource.data.id == sessionId;
+      allow delete: if true;
     }
 
-    // 5. Classes & Students
+    // 4. Classes & Students
     match /classes/{classId} {
-      allow read, write: if isApprovedTeacher();
+      allow read: if true;
+      allow create, update: if request.resource.data.id == classId;
+      allow delete: if true;
     }
     match /students/{studentId} {
-      allow read, write: if isApprovedTeacher();
+      allow read: if true;
+      allow create, update: if request.resource.data.id == studentId;
+      allow delete: if true;
     }
 
-    // 6. Submissions & Live Proctoring
+    // 5. Submissions & Live Proctoring
     match /submissions/{subId} {
       allow read: if true;
-      allow create: if request.resource.data.id == subId && request.resource.data.examId is string;
-      allow update: if request.resource.data.id == resource.data.id;
-      allow delete: if isApprovedTeacher() || isSuperAdmin();
+      allow create, update: if request.resource.data.id == subId;
+      allow delete: if true;
     }
 
-    // 7. Default Deny
+    // 6. Default Deny
     match /{document=**} {
       allow read, write: if false;
     }
@@ -93,36 +75,36 @@ const RTDB_RULES_CONTENT = `{
     "live_proctor": {
       "$sessionId": {
         ".read": true,
+        ".write": true,
         "$submissionId": {
+          ".read": true,
           ".write": true
         }
       }
     },
     "sessions": {
       ".read": true,
+      ".write": true,
       "$sessionId": {
-        ".write": "auth != null"
+        ".read": true,
+        ".write": true
       }
     },
     "exams": {
       ".read": true,
-      "$examId": {
-        ".write": "auth != null"
-      }
+      ".write": true
     },
     "teachers": {
-      ".read": "auth != null",
-      "$teacherId": {
-        ".write": "auth != null && (auth.uid === $teacherId || auth.token.email === 'thongtnmfct31178@gmail.com')"
-      }
+      ".read": true,
+      ".write": true
     },
     "classes": {
-      ".read": "auth != null",
-      ".write": "auth != null"
+      ".read": true,
+      ".write": true
     },
     "students": {
-      ".read": "auth != null",
-      ".write": "auth != null"
+      ".read": true,
+      ".write": true
     }
   }
 }`;

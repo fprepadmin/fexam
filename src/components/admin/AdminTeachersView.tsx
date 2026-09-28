@@ -22,6 +22,9 @@ import {
   LogIn,
   X,
   Save,
+  Cloud,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { TeacherUser } from '../../types';
@@ -41,7 +44,7 @@ const SUBJECTS_LIST = [
 ];
 
 export const AdminTeachersView: React.FC = () => {
-  const { allTeachers, saveTeacher, deleteTeacher, user } = useAuth();
+  const { allTeachers, saveTeacher, deleteTeacher, syncAllTeachersToFirebase, user } = useAuth();
 
   if (user?.role !== 'admin') {
     return (
@@ -61,6 +64,7 @@ export const AdminTeachersView: React.FC = () => {
   const [selectedSubject, setSelectedSubject] = useState('all');
   const [selectedPlan, setSelectedPlan] = useState<'all' | 'standard' | 'pro' | 'vip'>('all');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'pending' | 'suspended'>('all');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Form State for Adding / Editing Teacher
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -138,7 +142,7 @@ export const AdminTeachersView: React.FC = () => {
     setIsFormOpen(true);
   };
 
-  const handleSubmitForm = (e: React.FormEvent) => {
+  const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name?.trim() || !formData.email?.trim()) {
       alert('Vui lòng nhập đầy đủ Họ tên và Email của giáo viên!');
@@ -167,23 +171,41 @@ export const AdminTeachersView: React.FC = () => {
       createdAt: formData.createdAt || new Date().toISOString().split('T')[0],
     };
 
-    saveTeacher(teacherToSave);
+    const res = await saveTeacher(teacherToSave);
     setIsFormOpen(false);
-    alert(editingTeacherId ? 'Đã cập nhật thông tin giáo viên!' : 'Đã thêm giáo viên mới vào hệ thống!');
+    if (res && !res.success) {
+      alert(`Đã lưu dữ liệu! Cảnh báo Firebase: ${res.error}`);
+    } else {
+      alert(editingTeacherId ? 'Đã cập nhật và đồng bộ giáo viên lên Firebase thành công!' : 'Đã thêm giáo viên mới và đồng bộ lên Firebase thành công!');
+    }
   };
 
-  const handleQuickUpgrade = (teacher: TeacherUser, plan: 'standard' | 'pro' | 'vip') => {
-    saveTeacher({ ...teacher, plan });
+  const handleSyncAllToFirebase = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await syncAllTeachersToFirebase();
+      if (res.success) {
+        alert(`Đã đồng bộ thành công ${res.count} giáo viên lên Firebase Firestore & Realtime DB!`);
+      } else {
+        alert(`Lỗi đồng bộ Firebase: ${res.error}`);
+      }
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
-  const handleQuickToggleStatus = (teacher: TeacherUser) => {
+  const handleQuickUpgrade = async (teacher: TeacherUser, plan: 'standard' | 'pro' | 'vip') => {
+    await saveTeacher({ ...teacher, plan });
+  };
+
+  const handleQuickToggleStatus = async (teacher: TeacherUser) => {
     const nextStatus = teacher.status === 'active' ? 'suspended' : 'active';
-    saveTeacher({ ...teacher, status: nextStatus });
+    await saveTeacher({ ...teacher, status: nextStatus });
   };
 
-  const handleDeleteTeacher = (id: string, name: string) => {
+  const handleDeleteTeacher = async (id: string, name: string) => {
     if (window.confirm(`Bạn có chắc chắn muốn xóa giáo viên "${name}" khỏi hệ thống?`)) {
-      deleteTeacher(id);
+      await deleteTeacher(id);
     }
   };
 
@@ -228,8 +250,17 @@ export const AdminTeachersView: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-3 shrink-0 relative z-10">
           <button
+            onClick={handleSyncAllToFirebase}
+            disabled={isSyncing}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs backdrop-blur-md transition-all shadow-md cursor-pointer disabled:opacity-50"
+          >
+            {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
+            <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng Bộ Lên Firebase'}</span>
+          </button>
+
+          <button
             onClick={handleExportExcel}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs backdrop-blur-md border border-white/10 transition-all shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs backdrop-blur-md border border-white/10 transition-all shadow-sm cursor-pointer"
           >
             <Download className="w-4 h-4" />
             <span>Xuất Excel</span>
@@ -237,9 +268,9 @@ export const AdminTeachersView: React.FC = () => {
 
           <button
             onClick={handleOpenCreateForm}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-brand-500 hover:bg-brand-600 text-white font-bold text-xs shadow-lg shadow-brand-500/30 transition-all hover:scale-[1.02]"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-white text-brand-700 hover:bg-slate-100 font-extrabold text-xs shadow-lg transition-all hover:scale-[1.02] cursor-pointer"
           >
-            <UserPlus className="w-4 h-4" />
+            <UserPlus className="w-4 h-4 text-brand-600" />
             <span>Thêm Giáo Viên Mới</span>
           </button>
         </div>

@@ -80,8 +80,24 @@ export function gradeQuestion(question: Question, answer?: StudentAnswer): { awa
   }
 }
 
+function parseNumericValue(val: string): number | null {
+  const clean = val.trim().replace(',', '.');
+  if (clean.includes('/')) {
+    const parts = clean.split('/');
+    if (parts.length === 2) {
+      const num = parseFloat(parts[0]);
+      const den = parseFloat(parts[1]);
+      if (!isNaN(num) && !isNaN(den) && den !== 0) {
+        return num / den;
+      }
+    }
+  }
+  const n = parseFloat(clean);
+  return isNaN(n) ? null : n;
+}
+
 /**
- * Check match for short answers supporting number format variations (e.g. 1.5 vs 1,5 vs 1.50)
+ * Check match for short answers supporting number format variations (e.g. 1.5 vs 1,5 vs 3/2 vs 1.50)
  */
 function checkShortAnswerMatch(studentInput: string, correctTarget: string, caseSensitive = false): boolean {
   const sInput = caseSensitive ? studentInput.trim() : studentInput.trim().toLowerCase();
@@ -90,13 +106,13 @@ function checkShortAnswerMatch(studentInput: string, correctTarget: string, case
   // Exact match
   if (sInput === cTarget) return true;
 
-  // Normalized numbers (replace comma with dot)
-  const numStudent = parseFloat(sInput.replace(',', '.'));
-  const numTarget = parseFloat(cTarget.replace(',', '.'));
+  // Normalized numbers & fractions
+  const numStudent = parseNumericValue(sInput);
+  const numTarget = parseNumericValue(cTarget);
 
-  if (!isNaN(numStudent) && !isNaN(numTarget)) {
-    // Check if both are valid numbers and equal within small precision
-    if (Math.abs(numStudent - numTarget) < 0.0001) {
+  if (numStudent !== null && numTarget !== null) {
+    // Check if both are valid numbers and equal within small precision (0.01)
+    if (Math.abs(numStudent - numTarget) < 0.01) {
       return true;
     }
   }

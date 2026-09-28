@@ -20,9 +20,10 @@ import {
   ChevronRight,
   RefreshCw,
   Loader2,
+  FileCheck,
 } from 'lucide-react';
 import { useExam } from '../../context/ExamContext';
-import { Exam, ExamSession, SessionCandidate } from '../../types';
+import { Exam, ExamSession, SessionCandidate, ExamSubmission } from '../../types';
 import { storage } from '../../services/storage';
 import { fetchExamByIdOrCode, fetchSessionByCodeOrId } from '../../services/firebase';
 
@@ -37,12 +38,14 @@ interface StudentEntryProps {
     className: string;
     email: string;
   }) => void;
+  onViewResult?: (submission: ExamSubmission, exam: Exam, session?: ExamSession) => void;
   onBackToTeacher: () => void;
 }
 
 export const StudentEntry: React.FC<StudentEntryProps> = ({
   initialExamCode = '',
   onEnterExam,
+  onViewResult,
   onBackToTeacher,
 }) => {
   const { exams, sessions } = useExam();
@@ -71,6 +74,47 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [matchedCandidate, setMatchedCandidate] = useState<SessionCandidate | null>(null);
+  const [existingSubmission, setExistingSubmission] = useState<ExamSubmission | null>(null);
+
+  // Helper to check if student already submitted this exam
+  const checkExistingSubmission = (
+    examId?: string,
+    sessionId?: string,
+    mshsVal?: string,
+    candidateCodeVal?: string
+  ): ExamSubmission | null => {
+    if (!examId) return null;
+    const allSubs = storage.getSubmissions();
+    const cleanMshs = mshsVal?.trim().toUpperCase();
+    const cleanCode = candidateCodeVal?.trim().toUpperCase();
+    if (!cleanMshs && !cleanCode) return null;
+
+    return (
+      allSubs.find((s) => {
+        const matchesSessionOrExam = sessionId ? s.sessionId === sessionId : s.examId === examId;
+        if (!matchesSessionOrExam) return false;
+        if (s.status !== 'submitted') return false;
+        const matchCode = cleanCode && s.studentCode?.trim().toUpperCase() === cleanCode;
+        const matchMshs = cleanMshs && s.mshs?.trim().toUpperCase() === cleanMshs;
+        return Boolean(matchCode || matchMshs);
+      }) || null
+    );
+  };
+
+  // Re-check existing submission whenever candidate identifiers change
+  useEffect(() => {
+    if (!selectedExam) {
+      setExistingSubmission(null);
+      return;
+    }
+    const found = checkExistingSubmission(
+      selectedExam.id,
+      selectedSession?.id,
+      mshs || matchedCandidate?.mshs,
+      candidateCode || matchedCandidate?.candidateCode
+    );
+    setExistingSubmission(found);
+  }, [selectedExam, selectedSession, mshs, candidateCode, matchedCandidate]);
 
   // Auto-lookup if coming from direct link
   useEffect(() => {
@@ -462,6 +506,30 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
       resolvedCandidate?.candidateCode ||
       String(Math.floor(10000 + Math.random() * 90000));
 
+    const isPracticeMode = Boolean(
+      selectedSession?.sessionType === 'practice' ||
+      selectedSession?.antiCheatLevel === 'none' ||
+      selectedExam.settings.isPracticeMode ||
+      selectedExam.settings.antiCheatLevel === 'none'
+    );
+
+    // CRITICAL: Check if student already submitted this exam
+    const foundSub = checkExistingSubmission(
+      selectedExam.id,
+      selectedSession?.id,
+      mshs.trim().toUpperCase(),
+      finalCandidateCode
+    );
+
+    if (foundSub && !isPracticeMode) {
+      if (onViewResult) {
+        onViewResult(foundSub, selectedExam, selectedSession || undefined);
+        return;
+      }
+      setErrorMsg('Bạn đã hoàn thành bài thi này và không thể làm lại!');
+      return;
+    }
+
     onEnterExam({
       exam: selectedExam,
       session: selectedSession || undefined,
@@ -474,6 +542,12 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
   };
 
   const isInfoLocked = Boolean(matchedCandidate);
+  const isPracticeMode = Boolean(
+    selectedSession?.sessionType === 'practice' ||
+    selectedSession?.antiCheatLevel === 'none' ||
+    selectedExam?.settings.isPracticeMode ||
+    selectedExam?.settings.antiCheatLevel === 'none'
+  );
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-between p-4 sm:p-6 text-slate-900 selection:bg-brand-500 selection:text-white">
@@ -895,27 +969,97 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
               )}
             </div>
 
-            {/* Exam Rules Card */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs space-y-1 text-slate-600">
-              <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                <Shield className="w-3.5 h-3.5 text-brand-600" />
-                <span>Quy định phòng thi trực tuyến:</span>
+            {/* ALREADY SUBMITTED NOTICE & DIRECT RESULT ACCESS */}
+            {existingSubmission && existingSubmission.status === 'submitted' && (
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 text-slate-900 space-y-3.5 shadow-sm animate-in fade-in">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-slate-900">
+                      BẠN ĐÃ HOÀN THÀNH VÀ NỘP BÀI THI NÀY
+                    </h4>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Thời gian nộp:{' '}
+                      <strong className="text-slate-800 font-bold">
+                        {new Date(
+                          existingSubmission.submitTime || existingSubmission.lastActiveTime || ''
+                        ).toLocaleTimeString('vi-VN')}{' '}
+                        ·{' '}
+                        {new Date(
+                          existingSubmission.submitTime || existingSubmission.lastActiveTime || ''
+                        ).toLocaleDateString('vi-VN')}
+                      </strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 p-3 bg-white/90 rounded-xl border border-amber-200 text-center">
+                  <div>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Điểm số</p>
+                    <p className="text-lg font-black text-brand-600">{existingSubmission.score ?? 0} / 10</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Số câu đúng</p>
+                    <p className="text-lg font-black text-emerald-600">
+                      {existingSubmission.correctCount ?? 0} / {existingSubmission.totalQuestions}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Thời gian làm</p>
+                    <p className="text-lg font-black text-slate-800">
+                      {Math.floor((existingSubmission.durationSecondsUsed || 0) / 60)}p
+                    </p>
+                  </div>
+                </div>
+
+                {!isPracticeMode && (
+                  <div className="p-2.5 rounded-xl bg-amber-100/80 border border-amber-200 text-xs text-amber-900 font-medium leading-relaxed">
+                    Hệ thống đã bảo lưu kết quả bài thi. Bạn không thể làm lại để tránh ghi đè dữ liệu.
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onViewResult) {
+                      onViewResult(existingSubmission, selectedExam, selectedSession || undefined);
+                    }
+                  }}
+                  className="w-full py-3.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <FileCheck className="w-4 h-4" />
+                  <span>XEM LẠI KẾT QUẢ & PHIẾU ĐIỂM</span>
+                </button>
               </div>
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Bài thi sẽ chạy ở chế độ <strong>Toàn màn hình</strong>. Không chuyển tab, không mở AI Extension hoặc thoát màn hình trong lúc thi.
-              </p>
-            </div>
+            )}
+
+            {/* Exam Rules Card */}
+            {(!existingSubmission || isPracticeMode) && (
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs space-y-1 text-slate-600">
+                <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                  <Shield className="w-3.5 h-3.5 text-brand-600" />
+                  <span>Quy định phòng thi trực tuyến:</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Bài thi sẽ chạy ở chế độ <strong>Toàn màn hình</strong>. Không chuyển tab, không mở AI Extension hoặc thoát màn hình trong lúc thi.
+                </p>
+              </div>
+            )}
 
             {/* Submit Action Button */}
             <div className="space-y-2.5 pt-2">
-              <button
-                type="submit"
-                disabled={!scheduleStatus.isOpen}
-                className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-brand-600 via-indigo-600 to-brand-700 hover:from-brand-500 hover:to-indigo-500 disabled:opacity-50 text-white font-black text-sm shadow-xl shadow-brand-500/25 hover:shadow-brand-500/35 transition-all flex items-center justify-center gap-2 cursor-pointer tracking-wide"
-              >
-                <span>BẮT ĐẦU LÀM BÀI THI</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              {(!existingSubmission || isPracticeMode) && (
+                <button
+                  type="submit"
+                  disabled={!scheduleStatus.isOpen}
+                  className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-brand-600 via-indigo-600 to-brand-700 hover:from-brand-500 hover:to-indigo-500 disabled:opacity-50 text-white font-black text-sm shadow-xl shadow-brand-500/25 hover:shadow-brand-500/35 transition-all flex items-center justify-center gap-2 cursor-pointer tracking-wide"
+                >
+                  <span>{existingSubmission && isPracticeMode ? 'LUYỆN TẬP LẠI LẦN NỮA' : 'BẮT ĐẦU LÀM BÀI THI'}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
 
               <button
                 type="button"
