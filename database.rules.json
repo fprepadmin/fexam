@@ -1,0 +1,40 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "live_proctor": {
+      "$sessionId": {
+        ".read": true,
+        "$submissionId": {
+          ".write": true
+        }
+      }
+    },
+    "sessions": {
+      ".read": true,
+      "$sessionId": {
+        ".write": "auth != null"
+      }
+    },
+    "exams": {
+      ".read": true,
+      "$examId": {
+        ".write": "auth != null"
+      }
+    },
+    "teachers": {
+      ".read": "auth != null",
+      "$teacherId": {
+        ".write": "auth != null && (auth.uid === $teacherId || auth.token.email === 'thongtnmfct31178@gmail.com')"
+      }
+    },
+    "classes": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "students": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}

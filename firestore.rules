@@ -1,0 +1,517 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Models
+    // ===============================================================
+    //
+    // 1. Collection: teachers
+    //    Document ID: Auth UID or legacy ID string
+    //    Fields:
+    //      - id: string (required, 1-128 chars, immutable)
+    //      - name: string (required, 1-128 chars)
+    //      - email: string (required, valid email format)
+    //      - subject: string (optional, 0-128 chars)
+    //      - plan: string (optional, 'standard' | 'pro' | 'vip')
+    //      - role: string (required, 'admin' | 'teacher')
+    //      - status: string (required, 'active' | 'approved' | 'pending' | 'suspended' | 'rejected')
+    //      - avatar: string (optional, 0-5000 chars)
+    //      - phone: string (optional, 0-32 chars)
+    //      - school: string (optional, 0-256 chars)
+    //      - maxExams: number (optional, >= 0)
+    //      - maxStudents: number (optional, >= 0)
+    //      - createdAt: string (optional, 0-64 chars)
+    //      - updatedAt: string (optional, 0-64 chars)
+    //      - lastLogin: string (optional, 0-64 chars)
+    //
+    // 2. Collection: exams
+    //    Document ID: examId string
+    //    Fields:
+    //      - id: string (required, 1-128 chars, immutable)
+    //      - title: string (required, 1-256 chars)
+    //      - subject: string (required, 1-128 chars)
+    //      - grade: string (required, 1-64 chars)
+    //      - description: string (optional, 0-2000 chars)
+    //      - authorId: string (required, 1-128 chars, immutable)
+    //      - authorName: string (required, 1-128 chars)
+    //      - authorEmail: string (required, valid email format)
+    //      - code: string (required, 1-64 chars)
+    //      - settings: map (required, exam settings)
+    //      - questions: list (required, <= 500 questions)
+    //      - totalPoints: number (required, 0-1000)
+    //      - createdAt: string (required, 1-64 chars, immutable)
+    //      - updatedAt: string (optional, 0-64 chars)
+    //      - status: string (optional, 0-64 chars)
+    //
+    // 3. Collection: sessions
+    //    Document ID: sessionId string
+    //    Fields:
+    //      - id: string (required, 1-128 chars, immutable)
+    //      - title: string (required, 1-256 chars)
+    //      - code: string (required, 1-64 chars)
+    //      - examId: string (required, 1-128 chars)
+    //      - examTitle: string (required, 1-256 chars)
+    //      - examCode: string (required, 1-64 chars)
+    //      - teacherId: string (optional, 0-128 chars)
+    //      - teacherEmail: string (optional, valid email format)
+    //      - teacherName: string (optional, 0-128 chars)
+    //      - mode: string (optional, 'class' | 'free')
+    //      - targetClassIds: list (optional, <= 100 items)
+    //      - targetClassNames: list (optional, <= 100 items)
+    //      - candidates: list (optional, <= 1000 items)
+    //      - durationMinutes: number (required, 1-1440)
+    //      - startTime: string (required, 1-64 chars)
+    //      - endTime: string (required, 1-64 chars)
+    //      - password: string (optional, 0-64 chars)
+    //      - antiCheatLevel: string (required, 'none' | 'standard' | 'strict' | 'maximum')
+    //      - maxViolationsAllowed: number (required, 0-100)
+    //      - sessionType: string (optional, 'exam' | 'practice')
+    //      - status: string (required, 'active' | 'upcoming' | 'closed')
+    //      - isActive: bool (optional)
+    //      - createdAt: string (required, 1-64 chars, immutable)
+    //      - updatedAt: string (optional, 0-64 chars)
+    //
+    // 4. Collection: classes
+    //    Document ID: classId string
+    //    Fields:
+    //      - id: string (required, 1-128 chars, immutable)
+    //      - name: string (required, 1-128 chars)
+    //      - code: string (required, 1-64 chars)
+    //      - grade: string (required, 1-64 chars)
+    //      - schoolYear: string (required, 1-64 chars)
+    //      - studentCount: number (required, 0-1000)
+    //      - teacherId: string (optional, 0-128 chars)
+    //      - teacherEmail: string (optional, valid email format)
+    //      - teacherName: string (optional, 0-128 chars)
+    //      - hasPassword: bool (optional)
+    //      - password: string (optional, 0-64 chars)
+    //      - createdAt: string (required, 1-64 chars, immutable)
+    //      - updatedAt: string (optional, 0-64 chars)
+    //
+    // 5. Collection: students
+    //    Document ID: studentId string
+    //    Fields:
+    //      - id: string (required, 1-128 chars, immutable)
+    //      - mshs: string (required, 1-64 chars)
+    //      - name: string (required, 1-128 chars)
+    //      - className: string (required, 1-128 chars)
+    //      - classId: string (required, 1-128 chars)
+    //      - email: string (optional, 0-128 chars)
+    //      - phone: string (optional, 0-32 chars)
+    //      - notes: string (optional, 0-1000 chars)
+    //      - teacherId: string (optional, 0-128 chars)
+    //      - teacherEmail: string (optional, valid email format)
+    //      - teacherName: string (optional, 0-128 chars)
+    //      - studentCode: string (optional, 0-64 chars)
+    //      - createdAt: string (required, 1-64 chars, immutable)
+    //      - updatedAt: string (optional, 0-64 chars)
+    //
+    // 6. Collection: submissions
+    //    Document ID: subId string
+    //    Fields:
+    //      - id: string (required, 1-128 chars, immutable)
+    //      - sessionId: string (optional, 0-128 chars)
+    //      - sessionCode: string (optional, 0-128 chars)
+    //      - examId: string (required, 1-128 chars, immutable)
+    //      - examCode: string (required, 1-128 chars)
+    //      - examTitle: string (required, 1-256 chars)
+    //      - studentId: string (optional, 0-128 chars)
+    //      - studentName: string (required, 1-128 chars)
+    //      - studentCode: string (required, 1-128 chars)
+    //      - mshs: string (optional, 0-64 chars)
+    //      - className: string (optional, 0-128 chars)
+    //      - email: string (optional, 0-128 chars)
+    //      - startTime: string (required, 1-64 chars, immutable)
+    //      - submitTime: string (optional, 0-64 chars)
+    //      - lastActiveTime: string (optional, 0-64 chars)
+    //      - durationSecondsUsed: number (required, 0-86400)
+    //      - status: string (required, 'not_started' | 'in_progress' | 'submitted' | 'disconnected' | 'flagged' | 'disqualified')
+    //      - answers: map (required)
+    //      - score: number (required, 0-1000)
+    //      - maxScore: number (required, 0-1000)
+    //      - answeredCount: number (required, 0-500)
+    //      - totalQuestions: number (required, 0-500)
+    //      - correctCount: number (optional, 0-500)
+    //      - wrongCount: number (optional, 0-500)
+    //      - violations: list (required, <= 200 items)
+    //      - isFlagged: bool (required)
+    //      - teacherNote: string (optional, 0-1000 chars)
+    //      - bonusMinutes: number (optional, -60 to 300)
+    //      - createdAt: string (optional, 0-64 chars)
+    //      - updatedAt: string (optional, 0-64 chars)
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() &&
+        request.auth.token.email != null &&
+        request.auth.token.email.lower() == 'thongtnmfct31178@gmail.com' &&
+        request.auth.token.email_verified == true;
+    }
+
+    function isApprovedTeacher() {
+      return isSuperAdmin() || (
+        isAuthenticated() &&
+        exists(/databases/$(database)/documents/teachers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.status in ['active', 'approved']
+      );
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() >= 5 &&
+        email.size() <= 128 &&
+        email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isRequiredString(data, field, minLen, maxLen) {
+      return (field in data) &&
+        (data[field] is string) &&
+        data[field].size() >= minLen &&
+        data[field].size() <= maxLen;
+    }
+
+    function isOptionalString(data, field, minLen, maxLen) {
+      return !(field in data) ||
+        (data[field] is string && data[field].size() >= minLen && data[field].size() <= maxLen);
+    }
+
+    function isRequiredNumber(data, field, minVal, maxVal) {
+      return (field in data) &&
+        (data[field] is number) &&
+        data[field] >= minVal &&
+        data[field] <= maxVal;
+    }
+
+    function isOptionalNumber(data, field, minVal, maxVal) {
+      return !(field in data) ||
+        (data[field] is number && data[field] >= minVal && data[field] <= maxVal);
+    }
+
+    function isRequiredBool(data, field) {
+      return (field in data) && (data[field] is bool);
+    }
+
+    function isOptionalBool(data, field) {
+      return !(field in data) || (data[field] is bool);
+    }
+
+    function isRequiredList(data, field, maxSize) {
+      return (field in data) && (data[field] is list) && data[field].size() <= maxSize;
+    }
+
+    function isOptionalList(data, field, maxSize) {
+      return !(field in data) || (data[field] is list && data[field].size() <= maxSize);
+    }
+
+    function isRequiredMap(data, field) {
+      return (field in data) && (data[field] is map);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidTeacher(data) {
+      return data.keys().hasOnly(['id', 'name', 'email', 'subject', 'plan', 'role', 'status', 'avatar', 'phone', 'school', 'maxExams', 'maxStudents', 'createdAt', 'updatedAt', 'lastLogin']) &&
+        data.keys().hasAll(['id', 'name', 'email', 'role', 'status']) &&
+        isRequiredString(data, 'id', 1, 128) &&
+        isRequiredString(data, 'name', 1, 128) &&
+        isValidEmail(data.email) &&
+        data.role in ['admin', 'teacher'] &&
+        data.status in ['active', 'approved', 'pending', 'suspended', 'rejected'] &&
+        isOptionalString(data, 'subject', 0, 128) &&
+        (!('plan' in data) || data.plan in ['standard', 'pro', 'vip']) &&
+        isOptionalString(data, 'avatar', 0, 5000) &&
+        isOptionalString(data, 'phone', 0, 32) &&
+        isOptionalString(data, 'school', 0, 256) &&
+        isOptionalNumber(data, 'maxExams', 0, 10000) &&
+        isOptionalNumber(data, 'maxStudents', 0, 100000) &&
+        isOptionalString(data, 'createdAt', 0, 64) &&
+        isOptionalString(data, 'updatedAt', 0, 64) &&
+        isOptionalString(data, 'lastLogin', 0, 64);
+    }
+
+    function isValidExam(data) {
+      return data.keys().hasOnly(['id', 'title', 'subject', 'grade', 'description', 'authorId', 'authorName', 'authorEmail', 'code', 'settings', 'questions', 'totalPoints', 'createdAt', 'updatedAt', 'status']) &&
+        data.keys().hasAll(['id', 'title', 'subject', 'grade', 'authorId', 'authorName', 'authorEmail', 'code', 'settings', 'questions', 'totalPoints', 'createdAt']) &&
+        isRequiredString(data, 'id', 1, 128) &&
+        isRequiredString(data, 'title', 1, 256) &&
+        isRequiredString(data, 'subject', 1, 128) &&
+        isRequiredString(data, 'grade', 1, 64) &&
+        isOptionalString(data, 'description', 0, 2000) &&
+        isRequiredString(data, 'authorId', 1, 128) &&
+        isRequiredString(data, 'authorName', 1, 128) &&
+        isValidEmail(data.authorEmail) &&
+        isRequiredString(data, 'code', 1, 64) &&
+        isRequiredMap(data, 'settings') &&
+        isRequiredList(data, 'questions', 500) &&
+        isRequiredNumber(data, 'totalPoints', 0, 1000) &&
+        isRequiredString(data, 'createdAt', 1, 64) &&
+        isOptionalString(data, 'updatedAt', 0, 64) &&
+        isOptionalString(data, 'status', 0, 64);
+    }
+
+    function isValidSession(data) {
+      return data.keys().hasOnly(['id', 'title', 'code', 'examId', 'examTitle', 'examCode', 'teacherId', 'teacherEmail', 'teacherName', 'mode', 'targetClassIds', 'targetClassNames', 'candidates', 'durationMinutes', 'startTime', 'endTime', 'password', 'antiCheatLevel', 'maxViolationsAllowed', 'sessionType', 'allowReviewAnswers', 'scoreDisplayMode', 'showSolutionMode', 'status', 'isActive', 'createdAt', 'updatedAt']) &&
+        data.keys().hasAll(['id', 'title', 'code', 'examId', 'examTitle', 'examCode', 'durationMinutes', 'startTime', 'endTime', 'antiCheatLevel', 'maxViolationsAllowed', 'status', 'createdAt']) &&
+        isRequiredString(data, 'id', 1, 128) &&
+        isRequiredString(data, 'title', 1, 256) &&
+        isRequiredString(data, 'code', 1, 64) &&
+        isRequiredString(data, 'examId', 1, 128) &&
+        isRequiredString(data, 'examTitle', 1, 256) &&
+        isRequiredString(data, 'examCode', 1, 64) &&
+        isOptionalString(data, 'teacherId', 0, 128) &&
+        (!('teacherEmail' in data) || isValidEmail(data.teacherEmail)) &&
+        isOptionalString(data, 'teacherName', 0, 128) &&
+        (!('mode' in data) || data.mode in ['class', 'free']) &&
+        isOptionalList(data, 'targetClassIds', 100) &&
+        isOptionalList(data, 'targetClassNames', 100) &&
+        isOptionalList(data, 'candidates', 1000) &&
+        isRequiredNumber(data, 'durationMinutes', 1, 1440) &&
+        isRequiredString(data, 'startTime', 1, 64) &&
+        isRequiredString(data, 'endTime', 1, 64) &&
+        isOptionalString(data, 'password', 0, 64) &&
+        data.antiCheatLevel in ['none', 'standard', 'strict', 'maximum'] &&
+        isRequiredNumber(data, 'maxViolationsAllowed', 0, 100) &&
+        (!('sessionType' in data) || data.sessionType in ['exam', 'practice']) &&
+        isOptionalBool(data, 'allowReviewAnswers') &&
+        (!('scoreDisplayMode' in data) || data.scoreDisplayMode in ['immediate', 'after_close', 'hidden']) &&
+        (!('showSolutionMode' in data) || data.showSolutionMode in ['always', 'after_close', 'never']) &&
+        data.status in ['active', 'upcoming', 'closed'] &&
+        isOptionalBool(data, 'isActive') &&
+        isRequiredString(data, 'createdAt', 1, 64) &&
+        isOptionalString(data, 'updatedAt', 0, 64);
+    }
+
+    function isValidClass(data) {
+      return data.keys().hasOnly(['id', 'name', 'code', 'grade', 'schoolYear', 'studentCount', 'teacherId', 'teacherEmail', 'teacherName', 'hasPassword', 'password', 'createdAt', 'updatedAt']) &&
+        data.keys().hasAll(['id', 'name', 'code', 'grade', 'schoolYear', 'studentCount', 'createdAt']) &&
+        isRequiredString(data, 'id', 1, 128) &&
+        isRequiredString(data, 'name', 1, 128) &&
+        isRequiredString(data, 'code', 1, 64) &&
+        isRequiredString(data, 'grade', 1, 64) &&
+        isRequiredString(data, 'schoolYear', 1, 64) &&
+        isRequiredNumber(data, 'studentCount', 0, 1000) &&
+        isOptionalString(data, 'teacherId', 0, 128) &&
+        (!('teacherEmail' in data) || isValidEmail(data.teacherEmail)) &&
+        isOptionalString(data, 'teacherName', 0, 128) &&
+        isOptionalBool(data, 'hasPassword') &&
+        isOptionalString(data, 'password', 0, 64) &&
+        isRequiredString(data, 'createdAt', 1, 64) &&
+        isOptionalString(data, 'updatedAt', 0, 64);
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasOnly(['id', 'mshs', 'name', 'className', 'classId', 'email', 'phone', 'notes', 'teacherId', 'teacherEmail', 'teacherName', 'studentCode', 'createdAt', 'updatedAt']) &&
+        data.keys().hasAll(['id', 'mshs', 'name', 'className', 'classId', 'createdAt']) &&
+        isRequiredString(data, 'id', 1, 128) &&
+        isRequiredString(data, 'mshs', 1, 64) &&
+        isRequiredString(data, 'name', 1, 128) &&
+        isRequiredString(data, 'className', 1, 128) &&
+        isRequiredString(data, 'classId', 1, 128) &&
+        isOptionalString(data, 'email', 0, 128) &&
+        isOptionalString(data, 'phone', 0, 32) &&
+        isOptionalString(data, 'notes', 0, 1000) &&
+        isOptionalString(data, 'teacherId', 0, 128) &&
+        (!('teacherEmail' in data) || isValidEmail(data.teacherEmail)) &&
+        isOptionalString(data, 'teacherName', 0, 128) &&
+        isOptionalString(data, 'studentCode', 0, 64) &&
+        isRequiredString(data, 'createdAt', 1, 64) &&
+        isOptionalString(data, 'updatedAt', 0, 64);
+    }
+
+    function isValidSubmission(data) {
+      return data.keys().hasOnly(['id', 'sessionId', 'sessionCode', 'examId', 'examCode', 'examTitle', 'studentId', 'studentName', 'studentCode', 'mshs', 'className', 'email', 'startTime', 'submitTime', 'lastActiveTime', 'durationSecondsUsed', 'status', 'answers', 'score', 'maxScore', 'answeredCount', 'totalQuestions', 'correctCount', 'wrongCount', 'violations', 'isFlagged', 'teacherNote', 'bonusMinutes', 'createdAt', 'updatedAt']) &&
+        data.keys().hasAll(['id', 'examId', 'examCode', 'examTitle', 'studentName', 'studentCode', 'startTime', 'durationSecondsUsed', 'status', 'answers', 'score', 'maxScore', 'answeredCount', 'totalQuestions', 'violations', 'isFlagged']) &&
+        isRequiredString(data, 'id', 1, 128) &&
+        isOptionalString(data, 'sessionId', 0, 128) &&
+        isOptionalString(data, 'sessionCode', 0, 128) &&
+        isRequiredString(data, 'examId', 1, 128) &&
+        isRequiredString(data, 'examCode', 1, 128) &&
+        isRequiredString(data, 'examTitle', 1, 256) &&
+        isOptionalString(data, 'studentId', 0, 128) &&
+        isRequiredString(data, 'studentName', 1, 128) &&
+        isRequiredString(data, 'studentCode', 1, 128) &&
+        isOptionalString(data, 'mshs', 0, 64) &&
+        isOptionalString(data, 'className', 0, 128) &&
+        isOptionalString(data, 'email', 0, 128) &&
+        isRequiredString(data, 'startTime', 1, 64) &&
+        isOptionalString(data, 'submitTime', 0, 64) &&
+        isOptionalString(data, 'lastActiveTime', 0, 64) &&
+        isRequiredNumber(data, 'durationSecondsUsed', 0, 86400) &&
+        data.status in ['not_started', 'in_progress', 'submitted', 'disconnected', 'flagged', 'disqualified'] &&
+        isRequiredMap(data, 'answers') &&
+        isRequiredNumber(data, 'score', 0, 1000) &&
+        isRequiredNumber(data, 'maxScore', 0, 1000) &&
+        isRequiredNumber(data, 'answeredCount', 0, 500) &&
+        isRequiredNumber(data, 'totalQuestions', 0, 500) &&
+        isOptionalNumber(data, 'correctCount', 0, 500) &&
+        isOptionalNumber(data, 'wrongCount', 0, 500) &&
+        isRequiredList(data, 'violations', 200) &&
+        isRequiredBool(data, 'isFlagged') &&
+        isOptionalString(data, 'teacherNote', 0, 1000) &&
+        isOptionalNumber(data, 'bonusMinutes', -60, 300) &&
+        isOptionalString(data, 'createdAt', 0, 64) &&
+        isOptionalString(data, 'updatedAt', 0, 64);
+    }
+
+    // ===============================================================
+    // Rules Definition
+    // ===============================================================
+
+    // 1. Quản lý Giáo viên (Teachers)
+    match /teachers/{teacherId} {
+      allow read: if isSuperAdmin() ||
+        (isAuthenticated() && (
+          resource.data.status in ['active', 'approved'] ||
+          request.auth.uid == teacherId ||
+          request.auth.token.email.lower() == resource.data.email.lower()
+        ));
+
+      allow create: if isValidTeacher(request.resource.data) && (
+        isSuperAdmin() || (
+          isAuthenticated() &&
+          (request.auth.uid == teacherId || request.resource.data.id == request.auth.uid) &&
+          request.resource.data.email.lower() == request.auth.token.email.lower() &&
+          request.resource.data.role == 'teacher' &&
+          request.resource.data.status in ['pending', 'active']
+        )
+      );
+
+      allow update: if isValidTeacher(request.resource.data) && (
+        isSuperAdmin() || (
+          isAuthenticated() &&
+          (request.auth.uid == teacherId || request.auth.token.email.lower() == resource.data.email.lower()) &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.email.lower() == resource.data.email.lower() &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.status == resource.data.status
+        )
+      );
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // 2. Kho Đề thi (Exams)
+    match /exams/{examId} {
+      allow read: if true;
+
+      allow create: if isApprovedTeacher() &&
+        isValidExam(request.resource.data) &&
+        request.resource.data.id == examId &&
+        (
+          isSuperAdmin() ||
+          request.resource.data.authorId == request.auth.uid ||
+          request.resource.data.authorEmail.lower() == request.auth.token.email.lower()
+        );
+
+      allow update: if isApprovedTeacher() &&
+        isValidExam(request.resource.data) &&
+        (
+          isSuperAdmin() ||
+          resource.data.authorId == request.auth.uid ||
+          resource.data.authorEmail.lower() == request.auth.token.email.lower()
+        ) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.authorId == resource.data.authorId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isApprovedTeacher() && (
+        isSuperAdmin() ||
+        resource.data.authorId == request.auth.uid ||
+        resource.data.authorEmail.lower() == request.auth.token.email.lower()
+      );
+    }
+
+    // 3. Ca thi (Exam Sessions)
+    match /sessions/{sessionId} {
+      allow read: if true;
+
+      allow create: if isApprovedTeacher() &&
+        isValidSession(request.resource.data) &&
+        request.resource.data.id == sessionId &&
+        (
+          isSuperAdmin() ||
+          !('teacherId' in request.resource.data) ||
+          request.resource.data.teacherId == request.auth.uid ||
+          request.resource.data.teacherEmail.lower() == request.auth.token.email.lower()
+        );
+
+      allow update: if isApprovedTeacher() &&
+        isValidSession(request.resource.data) &&
+        (
+          isSuperAdmin() ||
+          !('teacherId' in resource.data) ||
+          resource.data.teacherId == request.auth.uid ||
+          resource.data.teacherEmail.lower() == request.auth.token.email.lower()
+        ) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isApprovedTeacher() && (
+        isSuperAdmin() ||
+        !('teacherId' in resource.data) ||
+        resource.data.teacherId == request.auth.uid ||
+        resource.data.teacherEmail.lower() == request.auth.token.email.lower()
+      );
+    }
+
+    // 4. Lớp học (Classes)
+    match /classes/{classId} {
+      allow read: if isApprovedTeacher();
+
+      allow create: if isApprovedTeacher() &&
+        isValidClass(request.resource.data) &&
+        request.resource.data.id == classId;
+
+      allow update: if isApprovedTeacher() &&
+        isValidClass(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isApprovedTeacher();
+    }
+
+    // 5. Học sinh (Students)
+    match /students/{studentId} {
+      allow read: if isApprovedTeacher();
+
+      allow create: if isApprovedTeacher() &&
+        isValidStudent(request.resource.data) &&
+        request.resource.data.id == studentId;
+
+      allow update: if isApprovedTeacher() &&
+        isValidStudent(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isApprovedTeacher();
+    }
+
+    // 6. Bài thi & Giám sát (Submissions)
+    match /submissions/{subId} {
+      allow read: if true;
+
+      allow create: if request.resource.data.id == subId &&
+        request.resource.data.examId is string;
+
+      allow update: if request.resource.data.id == resource.data.id;
+
+      allow delete: if isApprovedTeacher() || isSuperAdmin();
+    }
+
+    // 7. Fallback: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
