@@ -33,6 +33,7 @@ import { ExamSession, ExamSubmission, ViolationRecord, QuestionTimelineEntry } f
 import { exportCandidatesToExcel } from '../../lib/excel-helper';
 import { subscribeLiveProctorSession } from '../../services/firebase';
 import { ManualGradingModal } from './ManualGradingModal';
+import { resolveStudentAnswer } from '../../lib/grading';
 
 interface SessionProctorViewProps {
   session: ExamSession;
@@ -710,9 +711,15 @@ export const SessionProctorView: React.FC<SessionProctorViewProps> = ({
                             <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
                               {questionsList.map((q, qIdx) => {
                                 const qOrder = q.order || qIdx + 1;
-                                const qEntry = timeline[q.id];
-                                const isAnswered = Boolean(qEntry || (sub.answers && sub.answers[q.id]));
-                                const isJustAnswered = sub.lastAnsweredQuestion?.questionId === q.id;
+                                const qEntry = timeline ? (timeline[q.id] || timeline[String(q.order)] || timeline[String(qIdx + 1)]) : undefined;
+                                const ansObj = resolveStudentAnswer(q, qIdx, sub.answers);
+                                let isAnswered = Boolean(qEntry);
+                                if (ansObj) {
+                                  if (q.type === 'multiple_choice' && ansObj.selectedOptionId) isAnswered = true;
+                                  else if (q.type === 'true_false' && ansObj.trueFalseAnswers && Object.keys(ansObj.trueFalseAnswers).length > 0) isAnswered = true;
+                                  else if (q.type === 'short_answer' && ansObj.shortAnswerText && ansObj.shortAnswerText.trim().length > 0) isAnswered = true;
+                                }
+                                const isJustAnswered = sub.lastAnsweredQuestion?.questionId === q.id || sub.lastAnsweredQuestion?.questionOrder === qOrder;
 
                                 return (
                                   <div
@@ -722,7 +729,7 @@ export const SessionProctorView: React.FC<SessionProctorViewProps> = ({
                                       isJustAnswered
                                         ? 'bg-emerald-500 text-white ring-2 ring-emerald-300 animate-pulse shadow-xs scale-105'
                                         : isAnswered
-                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-300'
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 font-extrabold'
                                         : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
                                     }`}
                                     onClick={() => {
@@ -1120,9 +1127,26 @@ export const SessionProctorView: React.FC<SessionProctorViewProps> = ({
                       <tbody className="divide-y divide-slate-100 text-slate-700">
                         {questionsList.map((q, idx) => {
                           const order = q.order || idx + 1;
-                          const tEntry = inspectStudent.questionTimeline ? inspectStudent.questionTimeline[q.id] : undefined;
-                          const ansObj = inspectStudent.answers ? inspectStudent.answers[q.id] : undefined;
-                          const isDone = Boolean(tEntry || ansObj);
+                          const tEntry = inspectStudent.questionTimeline
+                            ? (inspectStudent.questionTimeline[q.id] || inspectStudent.questionTimeline[String(q.order)] || inspectStudent.questionTimeline[String(idx + 1)])
+                            : undefined;
+                          const ansObj = resolveStudentAnswer(q, idx, inspectStudent.answers);
+
+                          let isDone = Boolean(tEntry);
+                          let answerSummary = tEntry?.summary || '';
+
+                          if (ansObj) {
+                            if (q.type === 'multiple_choice' && ansObj.selectedOptionId) {
+                              isDone = true;
+                              if (!answerSummary) answerSummary = `Chọn [${ansObj.selectedOptionId}]`;
+                            } else if (q.type === 'true_false' && ansObj.trueFalseAnswers && Object.keys(ansObj.trueFalseAnswers).length > 0) {
+                              isDone = true;
+                              if (!answerSummary) answerSummary = `Đã chọn ${Object.keys(ansObj.trueFalseAnswers).length}/4 ý`;
+                            } else if (q.type === 'short_answer' && ansObj.shortAnswerText && ansObj.shortAnswerText.trim().length > 0) {
+                              isDone = true;
+                              if (!answerSummary) answerSummary = `"${ansObj.shortAnswerText.slice(0, 15)}"`;
+                            }
+                          }
 
                           return (
                             <tr key={q.id || idx} className="hover:bg-slate-50">
@@ -1134,11 +1158,12 @@ export const SessionProctorView: React.FC<SessionProctorViewProps> = ({
                               </td>
                               <td className="py-2.5 px-3">
                                 {isDone ? (
-                                  <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                                    Đã trả lời {tEntry?.summary ? `(${tEntry.summary})` : ''}
+                                  <span className="font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 inline-flex items-center gap-1">
+                                    <span>✓ Đã làm</span>
+                                    {answerSummary && <span className="text-emerald-900 font-medium text-[11px]">({answerSummary})</span>}
                                   </span>
                                 ) : (
-                                  <span className="text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                                  <span className="text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-md">
                                     Chưa làm
                                   </span>
                                 )}
@@ -1148,12 +1173,24 @@ export const SessionProctorView: React.FC<SessionProctorViewProps> = ({
                                   <span className={tEntry.timeSpentSeconds < 3 ? 'text-rose-600 font-extrabold' : 'text-slate-700'}>
                                     {tEntry.timeSpentSeconds}s {tEntry.timeSpentSeconds < 3 ? '⚠️' : ''}
                                   </span>
+                                ) : isDone ? (
+                                  <span className="text-slate-500 font-mono text-xs">
+                                    ~{inspectStudent.durationSecondsUsed && inspectStudent.answeredCount ? Math.max(1, Math.round(inspectStudent.durationSecondsUsed / inspectStudent.answeredCount)) : 5}s
+                                  </span>
                                 ) : (
                                   '—'
                                 )}
                               </td>
-                              <td className="py-2.5 px-3 text-slate-400 font-mono text-[11px]">
-                                {tEntry?.answeredAt ? new Date(tEntry.answeredAt).toLocaleTimeString('vi-VN') : '—'}
+                              <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">
+                                {tEntry?.answeredAt ? (
+                                  new Date(tEntry.answeredAt).toLocaleTimeString('vi-VN')
+                                ) : ansObj?.answeredAt ? (
+                                  new Date(ansObj.answeredAt).toLocaleTimeString('vi-VN')
+                                ) : isDone && (inspectStudent.submitTime || inspectStudent.lastActiveTime) ? (
+                                  new Date(inspectStudent.submitTime || inspectStudent.lastActiveTime).toLocaleTimeString('vi-VN')
+                                ) : (
+                                  '—'
+                                )}
                               </td>
                             </tr>
                           );

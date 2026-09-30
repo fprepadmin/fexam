@@ -103,14 +103,14 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
 
   // Question answering speed & timeline tracker
   const questionStartTimesRef = useRef<{ [qId: string]: number }>({});
-  const questionTimelineRef = useRef<{ [qId: string]: any }>(() => {
+  const questionTimelineRef = useRef<{ [qId: string]: any }>((() => {
     try {
       const saved = localStorage.getItem(`fexam_timeline_${submissionId}`);
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
     }
-  });
+  })());
 
   const [teacherMessage, setTeacherMessage] = useState<string | null>(null);
   const dismissedNoteRef = useRef<string | null>(null);
@@ -256,6 +256,7 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
         answeredAt: new Date().toISOString(),
       },
     };
+    answersRef.current = newAnswers;
     setAnswers(newAnswers);
     saveLocalAndSync(newAnswers, qId, `Chọn đáp án [${optionLabel}]`);
     soundEngine.playNotice();
@@ -273,6 +274,7 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
         answeredAt: new Date().toISOString(),
       },
     };
+    answersRef.current = newAnswers;
     setAnswers(newAnswers);
     saveLocalAndSync(newAnswers, qId, `Chọn ý ${itemId.toUpperCase()}: ${value ? 'ĐÚNG' : 'SAI'}`);
   };
@@ -302,6 +304,7 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
         answeredAt: new Date().toISOString(),
       },
     };
+    answersRef.current = newAnswers;
     setAnswers(newAnswers);
     saveLocalAndSync(newAnswers, qId, `Nhập câu trả lời ngắn: "${text.slice(0, 20)}"`);
   };
@@ -603,7 +606,8 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
               {currentQuestion.type === 'multiple_choice' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
                   {(currentQuestion.options || []).map((opt) => {
-                    const isSelected = answers[currentQuestion.id]?.selectedOptionId === opt.label;
+                    const studentAns = answers[currentQuestion.id]?.selectedOptionId;
+                    const isSelected = studentAns === opt.label || studentAns === opt.id;
                     return (
                       <button
                         key={opt.id}
@@ -611,14 +615,14 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
                         onClick={() => handleSelectMultipleChoice(currentQuestion.id, opt.label)}
                         className={`p-4 rounded-2xl text-left border transition-all duration-150 flex items-center gap-3.5 cursor-pointer ${
                           isSelected
-                            ? 'bg-brand-50 border-brand-500 text-brand-950 ring-2 ring-brand-500/20 shadow-xs'
+                            ? 'bg-emerald-50 border-emerald-500 text-emerald-950 ring-2 ring-emerald-400/30 shadow-xs'
                             : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50/80 hover:border-slate-300'
                         }`}
                       >
                         <span
                           className={`w-9 h-9 rounded-xl font-black text-xs flex items-center justify-center shrink-0 ${
                             isSelected
-                              ? 'bg-brand-600 text-white shadow-xs'
+                              ? 'bg-emerald-600 text-white shadow-xs'
                               : 'bg-slate-100 text-slate-700 border border-slate-200'
                           }`}
                         >

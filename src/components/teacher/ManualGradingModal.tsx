@@ -979,15 +979,17 @@ export const ManualGradingModal: React.FC<ManualGradingModalProps> = ({
                   if (q.type === 'short_answer' && ans.shortAnswerText && ans.shortAnswerText.trim().length > 0) isAnswered = true;
                 }
 
-                let bgClass = 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100';
-                if (isCorrect) {
-                  bgClass = 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 font-black';
-                } else if (awardedPts > 0) {
-                  bgClass = 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 font-bold';
-                } else if (isAnswered) {
-                  bgClass = 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100';
+                let bgClass = 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100';
+                if (isAnswered) {
+                  if (isCorrect) {
+                    bgClass = 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 font-black';
+                  } else if (awardedPts > 0) {
+                    bgClass = 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 font-bold';
+                  } else {
+                    bgClass = 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100 font-bold';
+                  }
                 } else {
-                  bgClass = 'bg-slate-100 text-slate-400 border-dashed border-slate-300 hover:bg-slate-200';
+                  bgClass = 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100';
                 }
 
                 return (

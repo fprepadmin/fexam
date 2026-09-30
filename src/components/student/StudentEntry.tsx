@@ -72,7 +72,7 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
   const [candidateCode, setCandidateCode] = useState('');
   const [examPassword, setExamPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [isLookingUp, setIsLookingUp] = useState<boolean>(Boolean(initialExamCode));
   const [matchedCandidate, setMatchedCandidate] = useState<SessionCandidate | null>(null);
   const [existingSubmission, setExistingSubmission] = useState<ExamSubmission | null>(null);
 
@@ -491,28 +491,36 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
       return;
     }
 
-    // Validate Student Info: MSHS, Họ tên, Lớp
-    if (!mshs.trim()) {
-      setErrorMsg('Vui lòng nhập Mã số học sinh (MSHS)!');
-      return;
-    }
-
+    // Validate Student Info: Họ tên
     if (!fullName.trim()) {
       setErrorMsg('Vui lòng nhập đầy đủ Họ và tên học sinh!');
       return;
     }
 
-    if (!className.trim()) {
+    const isClassMode = selectedSession?.mode === 'class' && Boolean(selectedSession?.candidates && selectedSession.candidates.length > 0);
+
+    // Validate MSHS (Required for class roster mode, optional for free mode)
+    let finalMshs = mshs.trim().toUpperCase();
+    if (!finalMshs) {
+      if (isClassMode && !matchedCandidate) {
+        setErrorMsg('Vui lòng nhập Mã số học sinh (MSHS) theo danh sách lớp!');
+        return;
+      }
+      finalMshs = `TD-${Date.now().toString().slice(-6)}`;
+    }
+
+    const finalClassName = className.trim() || (isClassMode ? '' : 'Tự do');
+    if (!finalClassName) {
       setErrorMsg('Vui lòng nhập Lớp học của bạn!');
       return;
     }
 
     // If session is strictly class mode with roster and joined via link/general code
     let resolvedCandidate = matchedCandidate;
-    if (!resolvedCandidate && selectedSession?.mode === 'class' && selectedSession.candidates && selectedSession.candidates.length > 0) {
+    if (!resolvedCandidate && isClassMode && selectedSession?.candidates) {
       const foundInRoster = selectedSession.candidates.find(
         (c) =>
-          c.mshs?.toUpperCase() === mshs.trim().toUpperCase() ||
+          c.mshs?.toUpperCase() === finalMshs ||
           c.name?.toLowerCase().trim() === fullName.toLowerCase().trim()
       );
       if (foundInRoster) {
@@ -536,7 +544,7 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
     const foundSub = checkExistingSubmission(
       selectedExam.id,
       selectedSession?.id,
-      mshs.trim().toUpperCase(),
+      finalMshs,
       finalCandidateCode
     );
 
@@ -554,8 +562,8 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
       session: selectedSession || undefined,
       studentName: fullName.trim(),
       studentCode: finalCandidateCode,
-      mshs: mshs.trim().toUpperCase(),
-      className: className.trim(),
+      mshs: finalMshs,
+      className: finalClassName,
       email: email.trim(),
     });
   };
@@ -641,9 +649,27 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
         )}
 
         {/* =================================================================== */}
-        {/* BƯỚC 1: NHẬP MÃ PHÒNG THI / PIN CODE                               */}
+        {/* BƯỚC 1: NHẬP MÃ PHÒNG THI / PIN CODE HOẶC LOADING QUA LINK        */}
         {/* =================================================================== */}
-        {!selectedExam ? (
+        {isLookingUp && initialExamCode && !selectedExam ? (
+          <div className="bg-white rounded-3xl p-8 sm:p-12 border border-slate-100 shadow-xl space-y-6 text-center animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-brand-600 to-indigo-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-brand-500/30">
+              <Loader2 className="w-8 h-8 animate-spin" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                Đang Kết Nối Phòng Thi...
+              </h1>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                Hệ thống đang tải dữ liệu đề thi & phòng thi theo đường link. Vui lòng đợi trong giây lát!
+              </p>
+            </div>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-slate-700">
+              <Sparkles className="w-4 h-4 text-brand-600 animate-pulse" />
+              <span>Mã liên kết: {initialExamCode.toUpperCase()}</span>
+            </div>
+          </div>
+        ) : !selectedExam ? (
           <div className="bg-white rounded-3xl p-6 sm:p-9 border border-slate-100 shadow-xl space-y-6 text-center animate-in fade-in zoom-in-95 duration-200">
             <div className="space-y-2">
               <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto border border-brand-100 shadow-xs">
@@ -892,7 +918,12 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-bold text-slate-700">
-                      Mã số học sinh (MSHS) <span className="text-rose-500">*</span>
+                      Mã số học sinh (MSHS){' '}
+                      {selectedSession?.mode === 'class' && Boolean(selectedSession?.candidates?.length) ? (
+                        <span className="text-rose-500">*</span>
+                      ) : (
+                        <span className="text-slate-400 font-normal text-[11px]">(Tự do)</span>
+                      )}
                     </label>
                     {isInfoLocked && (
                       <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
@@ -904,9 +935,13 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
                     <IdCard className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                     <input
                       type="text"
-                      required
+                      required={Boolean(selectedSession?.mode === 'class' && selectedSession?.candidates?.length)}
                       readOnly={isInfoLocked}
-                      placeholder="VD: HS1205 hoặc 2026..."
+                      placeholder={
+                        selectedSession?.mode === 'class' && Boolean(selectedSession?.candidates?.length)
+                          ? 'VD: HS1205 hoặc SBD...'
+                          : 'VD: HS1205 (Tự động cấp nếu trống)'
+                      }
                       value={mshs}
                       onChange={(e) => !isInfoLocked && setMshs(e.target.value.toUpperCase())}
                       className={`w-full pl-10 pr-4 py-3 rounded-2xl border text-xs font-mono font-bold uppercase outline-none transition-all ${
@@ -921,7 +956,12 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-bold text-slate-700">
-                      Lớp học <span className="text-rose-500">*</span>
+                      Lớp học{' '}
+                      {selectedSession?.mode === 'class' && Boolean(selectedSession?.candidates?.length) ? (
+                        <span className="text-rose-500">*</span>
+                      ) : (
+                        <span className="text-slate-400 font-normal text-[11px]">(Mặc định: Tự do)</span>
+                      )}
                     </label>
                     {isInfoLocked && (
                       <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
@@ -933,7 +973,7 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
                     <School className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                     <input
                       type="text"
-                      required
+                      required={Boolean(selectedSession?.mode === 'class' && selectedSession?.candidates?.length)}
                       readOnly={isInfoLocked}
                       placeholder="VD: 12A1"
                       value={className}
