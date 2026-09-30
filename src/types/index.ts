@@ -137,6 +137,8 @@ export interface ExamSession {
   allowReviewAnswers?: boolean; // Cho phép học sinh xem lại chi tiết bài làm & đáp án
   scoreDisplayMode?: ScoreDisplayMode; // Hiển thị điểm số (immediate | after_close | hidden)
   showSolutionMode?: ShowSolutionMode; // Hiển thị lời giải chi tiết (always | after_close | never)
+  shuffleQuestions?: boolean; // Tự động đảo thứ tự câu hỏi cho từng học sinh
+  shuffleOptions?: boolean; // Tự động đảo thứ tự các phương án A, B, C, D
   status: SessionStatus;
   createdAt: string;
 }

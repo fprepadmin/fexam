@@ -6,12 +6,17 @@ import {
   Shield,
   EyeOff,
 } from 'lucide-react';
-import { enterFullscreen, isFullscreenActive, soundEngine } from '../../lib/anti-cheat';
+import {
+  enterFullscreen,
+  isFullscreenActive,
+  soundEngine,
+} from '../../lib/anti-cheat';
 import { ViolationRecord } from '../../types';
 
 interface ExamGuardProps {
   children: React.ReactNode;
   maxStrikes?: number;
+  initialStrikes?: number;
   onViolation: (violation: ViolationRecord) => void;
   onForceSubmit: () => void;
   requireFullscreen?: boolean;
@@ -21,6 +26,7 @@ interface ExamGuardProps {
 export const ExamGuard: React.FC<ExamGuardProps> = ({
   children,
   maxStrikes = 3,
+  initialStrikes = 0,
   onViolation,
   onForceSubmit,
   requireFullscreen = true,
@@ -32,7 +38,7 @@ export const ExamGuard: React.FC<ExamGuardProps> = ({
 
   // Guard states
   const [hasStartedFullscreen, setHasStartedFullscreen] = useState(false);
-  const [strikes, setStrikes] = useState(0);
+  const [strikes, setStrikes] = useState(initialStrikes);
   const [isLockedOut, setIsLockedOut] = useState(false);
   const [recentWarning, setRecentWarning] = useState<string | null>(null);
 
@@ -43,7 +49,18 @@ export const ExamGuard: React.FC<ExamGuardProps> = ({
   // Guard lock ref: While true, ALL subsequent events are ignored so 1 action NEVER fires multiple strikes!
   const isLockedOutRef = useRef<boolean>(false);
   const lastStrikeTimestampRef = useRef<number>(0);
-  const strikesCountRef = useRef<number>(0);
+  const strikesCountRef = useRef<number>(initialStrikes);
+
+  // Keep strikesCountRef in sync if initialStrikes updates from outside
+  useEffect(() => {
+    if (initialStrikes > strikesCountRef.current) {
+      strikesCountRef.current = initialStrikes;
+      setStrikes(initialStrikes);
+      if (initialStrikes >= maxStrikes) {
+        onForceSubmitRef.current();
+      }
+    }
+  }, [initialStrikes, maxStrikes]);
 
   // Store latest callbacks in refs to avoid recreating event listeners on every render
   const onViolationRef = useRef(onViolation);
@@ -57,8 +74,8 @@ export const ExamGuard: React.FC<ExamGuardProps> = ({
   const recordViolationOnce = useCallback(
     (type: ViolationRecord['type'], message: string) => {
       const now = Date.now();
-      // If already in locked out state or fired within 2000ms, ignore to guarantee exactly 1 strike
-      if (isLockedOutRef.current || now - lastStrikeTimestampRef.current < 2000) {
+      // If already in locked out state or fired within 1500ms, ignore to guarantee exactly 1 strike
+      if (isLockedOutRef.current || now - lastStrikeTimestampRef.current < 1500) {
         setIsLockedOut(true);
         return;
       }
@@ -86,7 +103,7 @@ export const ExamGuard: React.FC<ExamGuardProps> = ({
       if (currentStrike >= maxStrikes) {
         setTimeout(() => {
           onForceSubmitRef.current();
-        }, 600);
+        }, 500);
       }
     },
     [maxStrikes]
@@ -158,7 +175,8 @@ export const ExamGuard: React.FC<ExamGuardProps> = ({
 
   // 3. Main Security Listeners & Targeted AI Extension Purger
   useEffect(() => {
-    if (!hasStartedFullscreen) return;
+    const isGuardActive = hasStartedFullscreen || !requireFullscreen;
+    if (!isGuardActive) return;
 
     // Chặn Copy, Cut, Paste, Context Menu, Drag & Drop, SelectStart
     const preventAction = (e: Event) => {
@@ -273,7 +291,7 @@ export const ExamGuard: React.FC<ExamGuardProps> = ({
 
     // Bắt AI Sidebar (Monica / Edge Copilot / Opera Aria / DevTools)
     const handleResize = () => {
-      if (!hasStartedFullscreen) return;
+      if (!isGuardActive) return;
       
       const currentWidth = window.innerWidth;
       const screenWidth = window.screen.availWidth || window.screen.width;
@@ -491,12 +509,13 @@ export const ExamGuard: React.FC<ExamGuardProps> = ({
         msUserSelect: 'none',
       }}
     >
-      {/* 1. Main Exam Content: When locked out, 100% hidden (display: none + invisible) so NO AI/OCR screenshot can capture it */}
+      {/* 1. Main Exam Content */}
       <div
+        id="fexam-exam-content"
+        className="w-full min-h-screen"
         style={{
-          display: isLockedOut ? 'none' : 'block',
-          visibility: isLockedOut ? 'hidden' : 'visible',
-          opacity: isLockedOut ? 0 : 1,
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
         }}
       >
         {children}

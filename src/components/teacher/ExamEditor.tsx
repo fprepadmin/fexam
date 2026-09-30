@@ -813,6 +813,47 @@ export const ExamEditor: React.FC<ExamEditorProps> = ({
               />
             </label>
 
+            {/* Shuffling Options */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className="flex items-center justify-between p-4 rounded-2xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors bg-white">
+                <div className="space-y-0.5 pr-2">
+                  <span className="text-xs font-extrabold text-slate-900 block">
+                    Đảo thứ tự câu hỏi (Shuffle Questions)
+                  </span>
+                  <p className="text-[11px] text-slate-500">
+                    Trộn ngẫu nhiên vị trí các câu hỏi cho từng học sinh để chống nhìn bài.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.shuffleQuestions)}
+                  onChange={(e) =>
+                    setSettings({ ...settings, shuffleQuestions: e.target.checked })
+                  }
+                  className="w-5 h-5 rounded-lg text-brand-600 focus:ring-brand-500 cursor-pointer shrink-0"
+                />
+              </label>
+
+              <label className="flex items-center justify-between p-4 rounded-2xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors bg-white">
+                <div className="space-y-0.5 pr-2">
+                  <span className="text-xs font-extrabold text-slate-900 block">
+                    Đảo thứ tự phương án (Shuffle Options)
+                  </span>
+                  <p className="text-[11px] text-slate-500">
+                    Trộn ngẫu nhiên vị trí các phương án A, B, C, D của câu trắc nghiệm.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.shuffleOptions)}
+                  onChange={(e) =>
+                    setSettings({ ...settings, shuffleOptions: e.target.checked })
+                  }
+                  className="w-5 h-5 rounded-lg text-brand-600 focus:ring-brand-500 cursor-pointer shrink-0"
+                />
+              </label>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">

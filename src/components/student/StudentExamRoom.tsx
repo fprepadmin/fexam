@@ -24,7 +24,7 @@ import { calculateExamScore } from '../../lib/grading';
 import { ObfuscatedText } from '../common/ObfuscatedText';
 import { ObfuscatedImage } from '../common/ObfuscatedImage';
 import { ExamGuard } from '../common/ExamGuard';
-import { KeystrokeDynamicsTracker, soundEngine, exitFullscreen } from '../../lib/anti-cheat';
+import { KeystrokeDynamicsTracker, soundEngine, exitFullscreen, seededShuffle } from '../../lib/anti-cheat';
 
 interface StudentExamRoomProps {
   exam: Exam;
@@ -63,14 +63,68 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
   // Font Scale state: 1 (normal), 1.15 (large), 1.3 (xlarge)
   const [fontScale, setFontScale] = useState<number>(1);
 
-  // Current question list normalized with guaranteed unique IDs
+  // Current question list normalized with guaranteed unique IDs and deterministic per-student shuffling
   const questionsList = React.useMemo(() => {
-    return (exam.questions || []).map((q, idx) => ({
+    const raw = (exam.questions || []).map((q, idx) => ({
       ...q,
       id: q.id && typeof q.id === 'string' && q.id.trim() ? q.id : `q-${idx + 1}-${exam.id || 'exam'}`,
       order: q.order || idx + 1,
     }));
-  }, [exam.questions, exam.id]);
+
+    const shouldShuffleQuestions = Boolean(
+      session?.shuffleQuestions !== undefined
+        ? session.shuffleQuestions
+        : exam.settings?.shuffleQuestions
+    );
+    const shouldShuffleOptions = Boolean(
+      session?.shuffleOptions !== undefined
+        ? session.shuffleOptions
+        : exam.settings?.shuffleOptions
+    );
+
+    let result = raw;
+
+    // 1. Shuffle Questions if enabled
+    if (shouldShuffleQuestions) {
+      result = seededShuffle(raw, `${exam.id}_${cleanStudentCodeKey}_questions`).map((q, newIdx) => ({
+        ...q,
+        order: newIdx + 1, // Display order 1..N
+      }));
+    }
+
+    // 2. Shuffle Multiple Choice Options if enabled
+    if (shouldShuffleOptions) {
+      result = result.map((q) => {
+        if (q.type === 'multiple_choice' && q.options && q.options.length > 1) {
+          const shuffledOpts = seededShuffle(
+            q.options,
+            `${exam.id}_${cleanStudentCodeKey}_opt_${q.id}`
+          );
+          // Re-assign visual labels A, B, C, D while keeping their option IDs
+          const standardLabels = ['A', 'B', 'C', 'D', 'E', 'F'];
+          const reLabeledOpts = shuffledOpts.map((opt, oIdx) => ({
+            ...opt,
+            label: standardLabels[oIdx] || opt.label,
+          }));
+          return {
+            ...q,
+            options: reLabeledOpts,
+          };
+        }
+        return q;
+      });
+    }
+
+    return result;
+  }, [
+    exam.questions,
+    exam.id,
+    session?.shuffleQuestions,
+    session?.shuffleOptions,
+    exam.settings?.shuffleQuestions,
+    exam.settings?.shuffleOptions,
+    cleanStudentCodeKey,
+  ]);
 
   // Navigation state
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -239,10 +293,36 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
     return () => clearInterval(interval);
   }, [submissionId]);
 
+  // Effective max allowed strikes
+  const effectiveMaxViolations =
+    session?.maxViolationsAllowed !== undefined && session.maxViolationsAllowed > 0
+      ? session.maxViolationsAllowed
+      : exam.settings?.maxViolationsAllowed !== undefined && exam.settings.maxViolationsAllowed > 0
+      ? exam.settings.maxViolationsAllowed
+      : 3;
+
   // 4. Violation Recorder
   const handleRecordGuardViolation = (v: ViolationRecord) => {
-    setViolations((prev) => [...prev, v]);
+    const existingIdx = violationsRef.current.findIndex((item) => item.id === v.id);
+    let updated: ViolationRecord[];
+    if (existingIdx >= 0) {
+      updated = [...violationsRef.current];
+      updated[existingIdx] = v;
+    } else {
+      updated = [...violationsRef.current, v];
+    }
+    violationsRef.current = updated;
+    setViolations(updated);
     recordViolation(submissionId, v);
+
+    // CRITICAL: If total violations reach or exceed max allowed strikes, immediately force submit
+    if (!isPracticeMode && updated.length >= effectiveMaxViolations) {
+      soundEngine.playWarning();
+      alert(
+        `BÀI THI BỊ THU HỒI TỰ ĐỘNG: Bạn đã vi phạm quy chế thi ${updated.length}/${effectiveMaxViolations} lần! Hệ thống tự động khóa và nộp bài thi ngay lập tức.`
+      );
+      handleFinalSubmit();
+    }
   };
 
   // 5. Answer selection handlers
@@ -452,7 +532,8 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
   return (
     <ExamGuard
       disabled={isPracticeMode}
-      maxStrikes={exam.settings.maxViolationsAllowed || 3}
+      maxStrikes={effectiveMaxViolations}
+      initialStrikes={violations.length}
       requireFullscreen={isPracticeMode ? false : exam.settings.requireFullscreen}
       onViolation={handleRecordGuardViolation}
       onForceSubmit={handleFinalSubmit}

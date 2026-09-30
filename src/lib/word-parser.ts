@@ -22,42 +22,112 @@ export function parseExamText(rawText: string): ParseResult {
   const errors: string[] = [];
   const questions: Question[] = [];
 
-  // Normalize line endings and clean extra spaces
-  let text = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!rawText || !rawText.trim()) {
+    return { questions: [], errors: ['Nội dung đề thi trống!'], rawText: '' };
+  }
 
+  // Normalize line endings, non-breaking spaces, full-width characters and tabs
+  let text = rawText
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\u3000/g, ' ')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-');
+
+  // 1. EXTRACT SEPARATE ANSWER KEY TABLE AT THE BOTTOM (If present)
+  // e.g. "BẢNG ĐÁP ÁN", "ĐÁP ÁN THAM KHẢO", "ĐÁP ÁN CHI TIẾT", "KEY:"
+  const answerKeyMap: {
+    multipleChoice: { [order: number]: string };
+    trueFalse: { [order: number]: { [label: string]: boolean } };
+    shortAnswer: { [order: number]: string[] };
+  } = {
+    multipleChoice: {},
+    trueFalse: {},
+    shortAnswer: {},
+  };
+
+  const keySectionMatch = text.match(
+    /(?:^|\n)(?:BẢNG\s+ĐÁP\s+ÁN|ĐÁP\s+ÁN\s+(?:CÁC\s+CÂU|THAM\s+KHẢO|CHI\s+TIẾT)?|KEY\s*[\:\=])[\s\S]*$/i
+  );
+
+  let examBody = text;
+  if (keySectionMatch && keySectionMatch.index !== undefined && keySectionMatch.index > 50) {
+    const keySectionText = keySectionMatch[0];
+    examBody = text.slice(0, keySectionMatch.index).trim();
+
+    // Parse Multiple Choice Keys from table: "1.A", "1-A", "1:A", "1 A", "Câu 1: A", "1A"
+    const mcKeyRegex = /(?:Câu\s*)?(\d{1,3})\s*[\.\:\-\s\—]*([A-D])(?![a-z0-9])/gi;
+    let m;
+    while ((m = mcKeyRegex.exec(keySectionText)) !== null) {
+      const qNum = parseInt(m[1], 10);
+      const opt = m[2].toUpperCase();
+      if (!isNaN(qNum) && opt) {
+        answerKeyMap.multipleChoice[qNum] = opt;
+      }
+    }
+
+    // Parse True/False Keys from table: "Câu 1: a-Đ, b-S, c-Đ, d-S" or "1: a.Đ, b.S"
+    const tfKeyBlockRegex = /(?:Câu\s*)?(\d{1,3})\s*[\:\.\—\-]\s*([^\n]+)/gi;
+    let tfm;
+    while ((tfm = tfKeyBlockRegex.exec(keySectionText)) !== null) {
+      const qNum = parseInt(tfm[1], 10);
+      const rest = tfm[2];
+      const itemKeyRegex = /([a-d])\s*[\.\:\-\—\s]*([ĐđSs]|True|False|Đúng|Sai)/gi;
+      let ik;
+      const tfObj: { [label: string]: boolean } = {};
+      while ((ik = itemKeyRegex.exec(rest)) !== null) {
+        const lbl = ik[1].toLowerCase();
+        const val = ik[2].toLowerCase();
+        tfObj[lbl] = ['đ', 'đúng', 'true', 't', '1'].includes(val);
+      }
+      if (Object.keys(tfObj).length >= 2) {
+        answerKeyMap.trueFalse[qNum] = tfObj;
+      }
+    }
+  }
+
+  // 2. SPLIT DOCUMENT BY MOET SECTIONS & QUESTIONS
   // Track active section context if document uses MOET 2025 headers:
   // PHẦN I / PHẦN 1 -> multiple_choice
   // PHẦN II / PHẦN 2 -> true_false
   // PHẦN III / PHẦN 3 -> short_answer
   let currentSectionType: QuestionType | null = null;
 
-  // Split text by section or question delimiters
-  // Split on "PHẦN ..." or "Câu \d+" or "Bài \d+"
-  const lines = text.split('\n');
+  const lines = examBody.split('\n');
   const blocks: { text: string; sectionHint?: QuestionType }[] = [];
   let currentBlockLines: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+    if (!line) {
+      if (currentBlockLines.length > 0) currentBlockLines.push('');
+      continue;
+    }
 
     // Check Section Headers
-    if (/^PHẦN\s+(?:I|1|MỘT)[\.\:\s\—\-]/i.test(line)) {
+    if (/^PHẦN\s+(?:I|1|MỘT|ONE|A)[\.\:\s\—\-\/]/i.test(line) || /^PART\s+(?:I|1)[\.\:\s\—\-\/]/i.test(line)) {
       currentSectionType = 'multiple_choice';
       continue;
-    } else if (/^PHẦN\s+(?:II|2|HAI)[\.\:\s\—\-]/i.test(line)) {
+    } else if (/^PHẦN\s+(?:II|2|HAI|TWO|B)[\.\:\s\—\-\/]/i.test(line) || /^PART\s+(?:II|2)[\.\:\s\—\-\/]/i.test(line)) {
       currentSectionType = 'true_false';
       continue;
-    } else if (/^PHẦN\s+(?:III|3|BA)[\.\:\s\—\-]/i.test(line)) {
+    } else if (/^PHẦN\s+(?:III|3|BA|THREE|C)[\.\:\s\—\-\/]/i.test(line) || /^PART\s+(?:III|3)[\.\:\s\—\-\/]/i.test(line)) {
       currentSectionType = 'short_answer';
       continue;
     }
 
-    // Check Question Start: "Câu 1:", "Câu 1.", "Bài 1:", "[Câu 1]", "Câu 1 "
-    const isQuestionStart = /^(?:\[?Câu|Bài|Question\]?)\s*\d+[\.\:\s\—\-]/i.test(line);
+    // Check Question Start:
+    // Matches: "Câu 1:", "Câu 1.", "Câu 1 ", "Câu 1(1.0 điểm):", "Câu 1 [TH]:", "[Câu 1]", "Bài 1:", "Bài 1.", "1.", "1)"
+    const isQuestionStart =
+      /^(?:\[|\()?(?:Câu|Bài|Question)\s*\d{1,3}(?:\s*[\(\[][^\)\]]*[\)\]])?\s*[\.\:\s\—\-\/]/i.test(line) ||
+      /^(?:\[|\()?Câu\s*\d{1,3}(?:\]|\))?/i.test(line) ||
+      (!currentSectionType && /^\d{1,3}[\.\)]\s+[A-ZÀ-Ỹ]/i.test(line) && !/^[a-d][\.\)]/i.test(line));
 
     if (isQuestionStart && currentBlockLines.length > 0) {
       blocks.push({
-        text: currentBlockLines.join('\n'),
+        text: currentBlockLines.join('\n').trim(),
         sectionHint: currentSectionType || undefined,
       });
       currentBlockLines = [line];
@@ -66,63 +136,64 @@ export function parseExamText(rawText: string): ParseResult {
     }
   }
 
-  if (currentBlockLines.length > 0) {
+  if (currentBlockLines.length > 0 && currentBlockLines.join('').trim().length > 0) {
     blocks.push({
-      text: currentBlockLines.join('\n'),
+      text: currentBlockLines.join('\n').trim(),
       sectionHint: currentSectionType || undefined,
     });
   }
 
+  // 3. PARSE EACH BLOCK INTO STRUCTURED QUESTION
   let orderCounter = 1;
 
   for (const blockObj of blocks) {
     const trimmed = blockObj.text.trim();
     if (!trimmed) continue;
 
-    // Check if block has question pattern
-    const hasQuestionIndicator = /^(?:\[?Câu|Bài|Question\]?)\s*(\d+)[\.\:\s\—\-]*/i.test(trimmed);
+    // Extract explicit question order if present
+    const matchOrder = trimmed.match(/^(?:\[|\()?(?:Câu|Bài|Question)?\s*(\d{1,3})/i);
     let order = orderCounter;
-    if (hasQuestionIndicator) {
-      const match = trimmed.match(/^(?:\[?Câu|Bài|Question\]?)\s*(\d+)[\.\:\s\—\-]*/i);
-      if (match) {
-        order = parseInt(match[1], 10) || orderCounter;
-      }
+    if (matchOrder) {
+      order = parseInt(matchOrder[1], 10) || orderCounter;
     }
 
-    // Determine Question Type:
+    // Determine Question Type
     let qType: QuestionType = blockObj.sectionHint || 'multiple_choice';
 
-    const isExplicitTrueFalse =
+    // Heuristics for auto-detecting type even without explicit section headers:
+    const hasTrueFalsePatterns =
       /\[(Đúng[\s\/]+Sai|D[\s\/]+S|True[\s\/]+False)\]/i.test(trimmed) ||
-      (/(?:^|\n)\s*[a-d][\.\)]\s*.*?(?:\[(Đúng|Sai|Đ|S)\]|\((Đúng|Sai|Đ|S)\)|\s*[\-\—]\s*(Đúng|Sai))/i.test(trimmed) &&
-        /(?:^|\n)\s*b[\.\)]/i.test(trimmed));
+      (/(?:^|\n)\s*[a-d][\.\)]\s*.*?(?:\[(Đúng|Sai|Đ|S)\]|\((Đúng|Sai|Đ|S)\)|\s*[\-\—\:]\s*(Đúng|Sai))/i.test(trimmed) &&
+        /(?:^|\n|\s{2,})b[\.\)]/i.test(trimmed)) ||
+      (/(?:^|\n)\s*a[\.\)]\s+[\s\S]*?(?:^|\n)\s*b[\.\)]\s+[\s\S]*?(?:^|\n)\s*c[\.\)]\s+[\s\S]*?(?:^|\n)\s*d[\.\)]/i.test(trimmed) &&
+        !/(?:^|\n|\s{2,})[A-D][\.\)]/i.test(trimmed));
 
-    const isExplicitShortAnswer =
+    const hasShortAnswerPatterns =
       /\[(Trả lời ngắn|TLN|Short Answer)\]/i.test(trimmed) ||
-      (/(?:Đáp án|Đáp số|Kết quả)\s*[\:\=]\s*([^\nA-D\.\)]+)/i.test(trimmed) &&
-        !/(?:^|\n)\s*[A-D][\.\)]/i.test(trimmed) &&
-        !/(?:^|\n)\s*[a-d][\.\)]/i.test(trimmed));
+      (/(?:Đáp án|Đáp số|Kết quả|Key)\s*[\:\=]\s*([^\nA-D\.\)]+)/i.test(trimmed) &&
+        !/(?:^|\n|\s{2,})[A-D][\.\)]/i.test(trimmed) &&
+        !/(?:^|\n|\s{2,})[a-d][\.\)]/i.test(trimmed));
 
-    if (isExplicitTrueFalse) {
+    if (hasTrueFalsePatterns) {
       qType = 'true_false';
-    } else if (isExplicitShortAnswer) {
+    } else if (hasShortAnswerPatterns) {
       qType = 'short_answer';
     }
 
     if (qType === 'true_false') {
-      const q = parseTrueFalseQuestion(trimmed, order);
+      const q = parseTrueFalseQuestion(trimmed, order, answerKeyMap.trueFalse[order]);
       if (q) {
         questions.push(q);
         orderCounter++;
       }
     } else if (qType === 'short_answer') {
-      const q = parseShortAnswerQuestion(trimmed, order);
+      const q = parseShortAnswerQuestion(trimmed, order, answerKeyMap.shortAnswer[order]);
       if (q) {
         questions.push(q);
         orderCounter++;
       }
     } else {
-      const q = parseMultipleChoiceQuestion(trimmed, order);
+      const q = parseMultipleChoiceQuestion(trimmed, order, answerKeyMap.multipleChoice[order]);
       if (q) {
         questions.push(q);
         orderCounter++;
@@ -138,54 +209,84 @@ export function parseExamText(rawText: string): ParseResult {
 }
 
 /**
- * Parse Multiple Choice Question (A, B, C, D)
+ * Universal Multiple Choice Parser (Handles A, B, C, D in single-line, multi-line, columns, tabs)
  */
-function parseMultipleChoiceQuestion(block: string, order: number): Question | null {
+function parseMultipleChoiceQuestion(
+  block: string,
+  order: number,
+  fallbackCorrectKey?: string
+): Question | null {
   let explanation = '';
-  const expMatch = block.match(/(?:Lời giải|Hướng dẫn giải|Giải thích|HDG|Giải)\s*[\:\=\—\-]\s*([\s\S]*)$/i);
+  const expMatch = block.match(
+    /(?:Lời giải|Hướng dẫn giải|Giải thích|HDG|Giải|Chi tiết)\s*[\:\=\—\-]\s*([\s\S]*)$/i
+  );
   let mainContent = block;
-  if (expMatch) {
+  if (expMatch && expMatch.index !== undefined) {
     explanation = expMatch[1].trim();
     mainContent = block.slice(0, expMatch.index).trim();
   }
 
-  // Check explicit answer: "Đáp án: A" or "Chọn A" or "Key: A"
-  let correctOption = '';
-  const ansMatch = mainContent.match(/(?:Đáp án|Chọn|Key|ĐA)\s*[\:\=\—\-]\s*([A-D])/i);
+  // Detect explicit inline correct answer: "Đáp án: A", "Chọn A", "Key: A", "ĐA: A"
+  let correctOption = fallbackCorrectKey || '';
+  const ansMatch = mainContent.match(
+    /(?:Đáp án(?: đúng)?|Chọn|Key|ĐA)\s*[\:\=\—\-]\s*([A-D])(?![a-z0-9])/i
+  );
   if (ansMatch) {
     correctOption = ansMatch[1].toUpperCase();
     mainContent = mainContent.replace(ansMatch[0], '').trim();
   }
 
-  // Regex for A., B., C., D. or A), B), C), D) or *A., *B. or [A], [B]
-  const optionRegex = /(?:^|\n|\t|\s{2,})([\*]?)(?:\[)?([A-D])(?:\]|\.|\)|\:|\/)\s*([\s\S]*?)(?=(?:^|\n|\t|\s{2,})[\*]?(?:\[)?[A-D](?:\]|\.|\)|\:|\/)|$)/g;
+  // Pre-normalize horizontal options (e.g. "A. x=1 B. x=2 C. x=3 D. x=4")
+  // Insert newline before B., C., D. if preceded by text or math
+  const preProcessed = mainContent.replace(
+    /([^\n\s])\s+([A-D][\.\)\:\/])/g,
+    '$1\n$2'
+  );
+
+  // Regex for A., B., C., D. | A), B), C), D) | *A., *B. | [A], [B] | <u>A</u>.
+  const optionRegex =
+    /(?:^|\n|\t|\s{2,})([\*]?)(?:\[|<u>|<b>)?([A-D])(?:\]|<\/u>|<\/b>)?[\.\)\:\/]\s*([\s\S]*?)(?=(?:^|\n|\t|\s{2,})[\*]?(?:\[|<u>|<b>)?[A-D](?:\]|<\/u>|<\/b>)?[\.\)\:\/]|$)/gi;
 
   const options: { id: string; label: string; text: string }[] = [];
   let match;
   let firstOptionIndex = -1;
 
-  while ((match = optionRegex.exec(mainContent)) !== null) {
+  while ((match = optionRegex.exec(preProcessed)) !== null) {
     if (firstOptionIndex === -1) {
       firstOptionIndex = match.index;
     }
     const isStar = match[1] === '*';
     const label = match[2].toUpperCase();
-    const text = match[3].trim();
+    let text = match[3].trim();
+
+    // Clean any trailing whitespace or newlines inside option
+    text = text.replace(/\n+/g, ' ').trim();
 
     if (isStar) {
       correctOption = label;
     }
 
+    // Check if this option has [Đúng] or (Đúng) or (Đ)
+    if (/\[(?:Đúng|True|Đ)\]|\((?:Đúng|True|Đ)\)/i.test(text)) {
+      correctOption = label;
+      text = text.replace(/\[(?:Đúng|True|Đ)\]|\((?:Đúng|True|Đ)\)/gi, '').trim();
+    }
+
     options.push({
       id: label,
       label,
-      text,
+      text: text || `Phương án ${label}`,
     });
   }
 
-  let prompt = firstOptionIndex !== -1 ? mainContent.slice(0, firstOptionIndex).trim() : mainContent;
-  prompt = prompt.replace(/^(?:\[?Câu|Bài|Question\]?)\s*\d+[\.\:\s\—\-]*/i, '').trim();
+  let prompt =
+    firstOptionIndex !== -1 ? preProcessed.slice(0, firstOptionIndex).trim() : mainContent;
+  // Clean question prefix (e.g. "Câu 1:", "Câu 1 (1.0 điểm).", "Bài 1:")
+  prompt = prompt
+    .replace(/^(?:\[|\()?(?:Câu|Bài|Question)?\s*\d{1,3}(?:\s*[\(\[][^\)\]]*[\)\]])?\s*[\.\:\s\—\-\/]*/i, '')
+    .trim();
 
+  // If no options were found, generate standard 4 default options
   if (options.length === 0) {
     return {
       id: `q-${order}-${Date.now()}`,
@@ -198,123 +299,168 @@ function parseMultipleChoiceQuestion(block: string, order: number): Question | n
         { id: 'C', label: 'C', text: 'Phương án C' },
         { id: 'D', label: 'D', text: 'Phương án D' },
       ],
-      correctOptionId: 'A',
+      correctOptionId: correctOption || 'A',
       points: 0.25,
       explanation,
     };
   }
 
+  // Ensure standard labels A, B, C, D
+  const finalOptions = ['A', 'B', 'C', 'D'].map((lbl, idx) => {
+    const existing = options.find((o) => o.label === lbl) || options[idx];
+    if (existing) {
+      return { id: lbl, label: lbl, text: existing.text };
+    }
+    return { id: lbl, label: lbl, text: `Phương án ${lbl}` };
+  });
+
   return {
     id: `q-${order}-${Date.now()}`,
     order,
     type: 'multiple_choice',
-    prompt,
-    options,
-    correctOptionId: correctOption || options[0]?.label || 'A',
+    prompt: prompt || `Câu hỏi số ${order}`,
+    options: finalOptions,
+    correctOptionId: correctOption || finalOptions[0]?.label || 'A',
     points: 0.25,
     explanation,
   };
 }
 
 /**
- * Parse True / False Question
+ * Universal True / False Parser (MOET 2025 Standard)
  */
-function parseTrueFalseQuestion(block: string, order: number): Question | null {
+function parseTrueFalseQuestion(
+  block: string,
+  order: number,
+  fallbackKeyMap?: { [label: string]: boolean }
+): Question | null {
   let explanation = '';
-  const expMatch = block.match(/(?:Lời giải|Hướng dẫn giải|Giải thích|HDG|Giải)\s*[\:\=\—\-]\s*([\s\S]*)$/i);
+  const expMatch = block.match(
+    /(?:Lời giải|Hướng dẫn giải|Giải thích|HDG|Giải|Chi tiết)\s*[\:\=\—\-]\s*([\s\S]*)$/i
+  );
   let mainContent = block;
-  if (expMatch) {
+  if (expMatch && expMatch.index !== undefined) {
     explanation = expMatch[1].trim();
     mainContent = block.slice(0, expMatch.index).trim();
   }
 
-  mainContent = mainContent.replace(/\[(Đúng[\s\/]+Sai|D[\s\/]+S|True[\s\/]+False)\]/gi, '').trim();
+  mainContent = mainContent
+    .replace(/\[(Đúng[\s\/]+Sai|D[\s\/]+S|True[\s\/]+False)\]/gi, '')
+    .trim();
 
-  // Regex to match a), b), c), d)
-  const itemRegex = /(?:^|\n|\t|\s{2,})([a-d])[\.\)\:\/]\s*([\s\S]*?)(?=(?:^|\n|\t|\s{2,})[a-d][\.\)\:\/]|$)/gi;
+  // Normalize sub-items a, b, c, d
+  const preProcessed = mainContent.replace(/([^\n\s])\s+([a-d][\.\)\:\/])/gi, '$1\n$2');
+
+  const itemRegex =
+    /(?:^|\n|\t|\s{2,})([a-d])[\.\)\:\/]\s*([\s\S]*?)(?=(?:^|\n|\t|\s{2,})[a-d][\.\)\:\/]|$)/gi;
   const items: TrueFalseItem[] = [];
   let match;
   let firstItemIndex = -1;
 
-  while ((match = itemRegex.exec(mainContent)) !== null) {
+  while ((match = itemRegex.exec(preProcessed)) !== null) {
     if (firstItemIndex === -1) {
       firstItemIndex = match.index;
     }
     const label = match[1].toLowerCase();
     let text = match[2].trim();
-    let isCorrect = true;
+    let isCorrect = fallbackKeyMap?.[label] !== undefined ? fallbackKeyMap[label] : true;
 
-    // Check if ending has [Đúng], [Sai], (Đ), (S), - Đúng, - Sai
-    const tfMatch = text.match(/(?:\[|\(|\-\s*|\—\s*)(Đúng|Sai|Đ|S|True|False|T|F)(?:\]|\)|\s*$)/i);
+    // Check if ending or prefix has [Đúng], [Sai], (Đ), (S), - Đúng, - Sai, : Đúng, : Sai
+    const tfMatch = text.match(
+      /(?:\[|\(|\-\s*|\—\s*|\:\s*)(Đúng|Sai|Đ|S|True|False|T|F)(?:\]|\)|\s*$)/i
+    );
     if (tfMatch) {
       const val = tfMatch[1].toLowerCase();
-      isCorrect = ['đúng', 'đ', 'true', 't'].includes(val);
+      isCorrect = ['đúng', 'đ', 'true', 't', '1'].includes(val);
       text = text.replace(tfMatch[0], '').trim();
     }
+
+    text = text.replace(/\n+/g, ' ').trim();
 
     items.push({
       id: label,
       label,
-      statement: text,
+      statement: text || `Mệnh đề ý ${label}`,
       isCorrect,
     });
   }
 
-  let prompt = firstItemIndex !== -1 ? mainContent.slice(0, firstItemIndex).trim() : mainContent;
-  prompt = prompt.replace(/^(?:\[?Câu|Bài|Question\]?)\s*\d+[\.\:\s\—\-]*/i, '').trim();
+  let prompt =
+    firstItemIndex !== -1 ? preProcessed.slice(0, firstItemIndex).trim() : mainContent;
+  prompt = prompt
+    .replace(/^(?:\[|\()?(?:Câu|Bài|Question)?\s*\d{1,3}(?:\s*[\(\[][^\)\]]*[\)\]])?\s*[\.\:\s\—\-\/]*/i, '')
+    .trim();
 
-  if (items.length === 0) {
+  // Ensure 4 items a, b, c, d
+  const finalItems: TrueFalseItem[] = ['a', 'b', 'c', 'd'].map((lbl, idx) => {
+    const existing = items.find((it) => it.label === lbl) || items[idx];
+    if (existing) {
+      return {
+        id: lbl,
+        label: lbl,
+        statement: existing.statement,
+        isCorrect: existing.isCorrect,
+      };
+    }
+    const isCorr = fallbackKeyMap?.[lbl] !== undefined ? fallbackKeyMap[lbl] : idx % 2 === 0;
     return {
-      id: `q-${order}-${Date.now()}`,
-      order,
-      type: 'true_false',
-      prompt: prompt || `Câu hỏi đúng sai số ${order}`,
-      trueFalseItems: [
-        { id: 'a', label: 'a', statement: 'Mệnh đề ý a', isCorrect: true },
-        { id: 'b', label: 'b', statement: 'Mệnh đề ý b', isCorrect: false },
-        { id: 'c', label: 'c', statement: 'Mệnh đề ý c', isCorrect: true },
-        { id: 'd', label: 'd', statement: 'Mệnh đề ý d', isCorrect: false },
-      ],
-      points: 1.0,
-      explanation,
+      id: lbl,
+      label: lbl,
+      statement: `Mệnh đề ý ${lbl}`,
+      isCorrect: isCorr,
     };
-  }
+  });
 
   return {
     id: `q-${order}-${Date.now()}`,
     order,
     type: 'true_false',
-    prompt,
-    trueFalseItems: items,
+    prompt: prompt || `Câu hỏi Đúng / Sai số ${order}`,
+    trueFalseItems: finalItems,
     points: 1.0,
     explanation,
   };
 }
 
 /**
- * Parse Short Answer Question
+ * Universal Short Answer Parser
  */
-function parseShortAnswerQuestion(block: string, order: number): Question | null {
+function parseShortAnswerQuestion(
+  block: string,
+  order: number,
+  fallbackAnswers?: string[]
+): Question | null {
   let explanation = '';
-  const expMatch = block.match(/(?:Lời giải|Hướng dẫn giải|Giải thích|HDG|Giải)\s*[\:\=\—\-]\s*([\s\S]*)$/i);
+  const expMatch = block.match(
+    /(?:Lời giải|Hướng dẫn giải|Giải thích|HDG|Giải|Chi tiết)\s*[\:\=\—\-]\s*([\s\S]*)$/i
+  );
   let mainContent = block;
-  if (expMatch) {
+  if (expMatch && expMatch.index !== undefined) {
     explanation = expMatch[1].trim();
     mainContent = block.slice(0, expMatch.index).trim();
   }
 
-  mainContent = mainContent.replace(/\[(Trả lời ngắn|TLN|Short Answer)\]/gi, '').trim();
+  mainContent = mainContent
+    .replace(/\[(Trả lời ngắn|TLN|Short Answer)\]/gi, '')
+    .trim();
 
-  const correctAnswers: string[] = [];
-  const ansMatch = mainContent.match(/(?:Đáp án|Đáp số|Kết quả|Key|ĐA)\s*[\:\=\—\-]\s*([^\n]+)/i);
+  const correctAnswers: string[] = fallbackAnswers ? [...fallbackAnswers] : [];
+  const ansMatch = mainContent.match(
+    /(?:Đáp án|Đáp số|Kết quả|Key|ĐA)\s*[\:\=\—\-]\s*([^\n]+)/i
+  );
   if (ansMatch) {
     const rawAnswers = ansMatch[1].trim();
-    const splitAnswers = rawAnswers.split(/[\;\|]/).map((s) => s.trim()).filter(Boolean);
+    const splitAnswers = rawAnswers
+      .split(/[\;\|]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
     correctAnswers.push(...splitAnswers);
     mainContent = mainContent.replace(ansMatch[0], '').trim();
   }
 
-  let prompt = mainContent.replace(/^(?:\[?Câu|Bài|Question\]?)\s*\d+[\.\:\s\—\-]*/i, '').trim();
+  let prompt = mainContent
+    .replace(/^(?:\[|\()?(?:Câu|Bài|Question)?\s*\d{1,3}(?:\s*[\(\[][^\)\]]*[\)\]])?\s*[\.\:\s\—\-\/]*/i, '')
+    .trim();
 
   return {
     id: `q-${order}-${Date.now()}`,
@@ -328,7 +474,7 @@ function parseShortAnswerQuestion(block: string, order: number): Question | null
 }
 
 /**
- * Parse .docx file using mammoth
+ * Parse .docx file using mammoth with text & html normalization
  */
 export async function parseDocxFile(file: File): Promise<ParseResult> {
   try {

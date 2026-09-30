@@ -25,6 +25,7 @@ import {
   HelpCircle,
   FileText,
   TrendingUp,
+  Download,
 } from 'lucide-react';
 import { useExam } from '../../context/ExamContext';
 import { Exam, ExamSubmission, ViolationRecord, QuestionTimelineEntry } from '../../types';
@@ -95,9 +96,15 @@ export const LiveProctoring: React.FC<LiveProctoringProps> = ({
       questionTimeline: liveUpdate.questionTimeline || sub.questionTimeline,
       lastAnsweredQuestion: liveUpdate.lastAnsweredQuestion || sub.lastAnsweredQuestion,
       answers: liveUpdate.answers || sub.answers,
-      violations: liveUpdate.lastViolation
-        ? [liveUpdate.lastViolation, ...(sub.violations || []).filter((v) => v.id !== liveUpdate.lastViolation?.id)]
-        : sub.violations,
+      violations: (() => {
+        if (liveUpdate.violations && Array.isArray(liveUpdate.violations) && liveUpdate.violations.length > 0) {
+          return liveUpdate.violations;
+        }
+        if (liveUpdate.lastViolation) {
+          return [liveUpdate.lastViolation, ...(sub.violations || []).filter((v) => v.id !== liveUpdate.lastViolation?.id)];
+        }
+        return sub.violations || [];
+      })(),
       lastActiveTime: liveUpdate.lastActiveTime || sub.lastActiveTime,
       isFlagged: liveUpdate.isFlagged !== undefined ? liveUpdate.isFlagged : sub.isFlagged,
     };
@@ -126,7 +133,7 @@ export const LiveProctoring: React.FC<LiveProctoringProps> = ({
         maxScore: currentExam?.totalPoints || 10,
         answeredCount: liveCand.answeredCount || 0,
         totalQuestions: currentExam?.questions?.length || 0,
-        violations: liveCand.lastViolation ? [liveCand.lastViolation] : [],
+        violations: liveCand.violations || (liveCand.lastViolation ? [liveCand.lastViolation] : []),
         isFlagged: Boolean(liveCand.isFlagged),
         questionTimeline: liveCand.questionTimeline || {},
         averageSpeedSecondsPerQuestion: liveCand.averageSpeedSecondsPerQuestion || 0,
@@ -1104,12 +1111,16 @@ export const LiveProctoring: React.FC<LiveProctoringProps> = ({
                   ) : (
                     <div className="space-y-2">
                       {(inspectStudent.violations || []).map((v, i) => (
-                        <div key={`v-${i}`} className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2 text-rose-700 font-bold">
-                            <AlertTriangle className="w-4 h-4 text-rose-600" />
-                            <span>{v.message}</span>
+                        <div key={`v-${i}`} className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 space-y-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-rose-700 font-bold">
+                              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <span>{v.message}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                              {new Date(v.timestamp).toLocaleTimeString('vi-VN')}
+                            </span>
                           </div>
-                          <span className="text-[10px] text-slate-400">{new Date(v.timestamp).toLocaleTimeString('vi-VN')}</span>
                         </div>
                       ))}
 
@@ -1211,6 +1222,7 @@ export const LiveProctoring: React.FC<LiveProctoringProps> = ({
           </div>
         </div>
       )}
+
     </div>
   );
 };

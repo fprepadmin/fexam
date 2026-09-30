@@ -56,15 +56,26 @@ export const StudentResult: React.FC<StudentResultProps> = ({
 }) => {
   const [filterMode, setFilterMode] = useState<'all' | 'correct' | 'wrong' | 'unanswered'>('all');
 
-  const scoreDisplayMode = session?.scoreDisplayMode ?? exam.settings.scoreDisplayMode;
-  const showSolutionMode = session?.showSolutionMode ?? exam.settings.showSolutionMode;
-  const allowReview =
-    session?.allowReviewAnswers !== undefined
-      ? session.allowReviewAnswers
-      : (exam.settings.allowReviewAnswers ?? true);
+  const now = Date.now();
+  const isSessionClosed = session?.status === 'closed' || Boolean(session?.endTime && now > new Date(session.endTime).getTime());
+  const isExamClosed = Boolean(exam.settings?.closeTime && now > new Date(exam.settings.closeTime).getTime());
+  const isClosed = Boolean(isSessionClosed || isExamClosed);
 
-  const showScore = scoreDisplayMode === 'immediate';
-  const showSolutions = showSolutionMode === 'always';
+  // If EITHER exam or session disables review, strictly forbid viewing questions/answers
+  const isExamReviewDisabled = exam.settings?.allowReviewAnswers === false;
+  const isSessionReviewDisabled = session?.allowReviewAnswers === false;
+  const allowReview = !isExamReviewDisabled && !isSessionReviewDisabled;
+
+  const scoreDisplayMode = session?.scoreDisplayMode || exam.settings?.scoreDisplayMode || 'immediate';
+  const showSolutionMode = session?.showSolutionMode || exam.settings?.showSolutionMode || 'after_close';
+
+  const showScore =
+    scoreDisplayMode === 'immediate' ||
+    (scoreDisplayMode === 'after_close' && isClosed);
+
+  const showSolutions =
+    showSolutionMode === 'always' ||
+    (showSolutionMode === 'after_close' && isClosed);
 
   const score10 = submission.score ?? 0;
 

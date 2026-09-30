@@ -1,7 +1,6 @@
 /**
  * Anti-Cheat Utilities, Sound Effects Engine & Keystroke Dynamics
  */
-
 class AudioAlertSystem {
   private ctx: AudioContext | null = null;
 
@@ -201,3 +200,38 @@ export function isFullscreenActive(): boolean {
     (document as any).msFullscreenElement
   );
 }
+
+/**
+ * Deterministic Pseudo-Random Seeded Shuffle (Fisher-Yates with Mulberry32 PRNG)
+ * Guarantees that the same student (with the same seed) gets the exact same shuffled order
+ * across page reloads and device reconnections.
+ */
+export function seededShuffle<T>(array: T[], seedStr: string): T[] {
+  if (!array || array.length <= 1) return [...(array || [])];
+
+  // Mulberry32 hash generator from string seed
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    h = Math.imul(h ^ seedStr.charCodeAt(i), 16777619);
+  }
+  let seed = h >>> 0;
+
+  const random = () => {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  return shuffled;
+}
+
+
+
+

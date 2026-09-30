@@ -559,7 +559,12 @@ class FexamStorage {
     const target = subs.find((s) => s.id === submissionId);
     if (target) {
       target.violations = target.violations || [];
-      target.violations.unshift(violation);
+      const existingIdx = target.violations.findIndex((v) => v.id === violation.id);
+      if (existingIdx >= 0) {
+        target.violations[existingIdx] = violation;
+      } else {
+        target.violations.unshift(violation);
+      }
       target.isFlagged = true;
       target.lastActiveTime = new Date().toISOString();
       localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(subs));

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -12,6 +12,7 @@ import {
   Save,
   ShieldCheck,
   ShieldAlert,
+  Shuffle,
 } from 'lucide-react';
 import { useExam } from '../../context/ExamContext';
 import { useAuth } from '../../context/AuthContext';
@@ -112,6 +113,34 @@ export const SessionCreateView: React.FC<SessionCreateViewProps> = ({
     editingSession?.showSolutionMode || (sessionType === 'practice' ? 'always' : selectedExam?.settings.showSolutionMode || 'after_close')
   );
 
+  // Exam Question & Option Shuffling Settings
+  const [shuffleQuestions, setShuffleQuestions] = useState<boolean>(
+    editingSession?.shuffleQuestions ?? selectedExam?.settings?.shuffleQuestions ?? true
+  );
+  const [shuffleOptions, setShuffleOptions] = useState<boolean>(
+    editingSession?.shuffleOptions ?? selectedExam?.settings?.shuffleOptions ?? true
+  );
+
+  useEffect(() => {
+    if (selectedExam && !editingSession) {
+      if (selectedExam.settings?.allowReviewAnswers !== undefined) {
+        setAllowReviewAnswers(selectedExam.settings.allowReviewAnswers);
+      }
+      if (selectedExam.settings?.scoreDisplayMode) {
+        setScoreDisplayMode(selectedExam.settings.scoreDisplayMode);
+      }
+      if (selectedExam.settings?.showSolutionMode) {
+        setShowSolutionMode(selectedExam.settings.showSolutionMode);
+      }
+      if (selectedExam.settings?.shuffleQuestions !== undefined) {
+        setShuffleQuestions(selectedExam.settings.shuffleQuestions);
+      }
+      if (selectedExam.settings?.shuffleOptions !== undefined) {
+        setShuffleOptions(selectedExam.settings.shuffleOptions);
+      }
+    }
+  }, [selectedExamId]);
+
   const handleToggleSessionType = (type: 'exam' | 'practice') => {
     setSessionType(type);
     if (type === 'practice') {
@@ -202,6 +231,8 @@ export const SessionCreateView: React.FC<SessionCreateViewProps> = ({
       allowReviewAnswers,
       scoreDisplayMode,
       showSolutionMode,
+      shuffleQuestions,
+      shuffleOptions,
       status,
       createdAt: editingSession?.createdAt || new Date().toLocaleDateString('vi-VN'),
     };
@@ -689,6 +720,62 @@ export const SessionCreateView: React.FC<SessionCreateViewProps> = ({
                 </div>
               </div>
             ) : null}
+
+            {/* Exam Question & Option Shuffling Settings */}
+            <div className="sm:col-span-2 space-y-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center gap-2">
+                <Shuffle className="w-4 h-4 text-brand-600" />
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Cấu hình đảo đề thi &amp; xáo trộn mã đề
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex items-center justify-between p-4 rounded-2xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors bg-white">
+                  <div className="space-y-0.5 pr-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-extrabold text-slate-900">
+                        Đảo thứ tự câu hỏi
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${shuffleQuestions ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-500'}`}>
+                        {shuffleQuestions ? 'Đang BẬT' : 'Đang TẮT'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Mỗi thí sinh nhận một thứ tự câu hỏi ngẫu nhiên khác nhau theo SBD.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={shuffleQuestions}
+                    onChange={(e) => setShuffleQuestions(e.target.checked)}
+                    className="w-5 h-5 rounded-lg text-brand-600 focus:ring-brand-500 cursor-pointer"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between p-4 rounded-2xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors bg-white">
+                  <div className="space-y-0.5 pr-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-extrabold text-slate-900">
+                        Đảo thứ tự phương án (A, B, C, D)
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${shuffleOptions ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-500'}`}>
+                        {shuffleOptions ? 'Đang BẬT' : 'Đang TẮT'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Trộn ngẫu nhiên vị trí các đáp án trắc nghiệm trong từng câu hỏi.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={shuffleOptions}
+                    onChange={(e) => setShuffleOptions(e.target.checked)}
+                    className="w-5 h-5 rounded-lg text-brand-600 focus:ring-brand-500 cursor-pointer"
+                  />
+                </label>
+              </div>
+            </div>
 
             {/* Post-submission Review & Display Settings */}
             <div className="sm:col-span-2 space-y-4 pt-3 border-t border-slate-100">

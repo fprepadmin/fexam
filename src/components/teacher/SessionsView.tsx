@@ -20,6 +20,7 @@ import {
   Play,
   Square,
   Sparkles,
+  Shuffle,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useExam } from '../../context/ExamContext';
@@ -327,6 +328,13 @@ export const SessionsView: React.FC<SessionsViewProps> = ({
                         <Eye className="w-3.5 h-3.5" />
                         <span>Xem {session.candidates.length} SBD</span>
                       </button>
+                    )}
+
+                    {(session.shuffleQuestions || session.shuffleOptions) && (
+                      <span className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200/80 px-2.5 py-1 rounded-xl text-indigo-700 font-bold text-[11px]">
+                        <Shuffle className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>{session.shuffleQuestions && session.shuffleOptions ? 'Đảo câu & đáp án' : session.shuffleQuestions ? 'Đảo câu' : 'Đảo đáp án'}</span>
+                      </span>
                     )}
 
                     {!isPractice && flaggedCount > 0 && (

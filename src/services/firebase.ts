@@ -564,6 +564,7 @@ export const saveSubmissionFirestore = async (sub: ExamSubmission) => {
         answers: clean.answers || {},
         violationsCount: clean.violations?.length || 0,
         lastViolation: clean.violations && clean.violations.length > 0 ? clean.violations[0] : null,
+        violations: clean.violations || [],
         lastActiveTime: clean.lastActiveTime || new Date().toISOString(),
         score: clean.score,
         bonusMinutes: clean.bonusMinutes || 0,
@@ -600,7 +601,9 @@ export const recordViolationRealtime = async (
   violation: ViolationRecord,
   currentViolations: ViolationRecord[]
 ) => {
-  const updatedViolations = sanitizeForFirebase([violation, ...(currentViolations || [])]);
+  const cleanViolation = sanitizeForFirebase(violation);
+  const otherViolations = (currentViolations || []).filter((v) => v && v.id !== violation.id);
+  const updatedViolations = sanitizeForFirebase([cleanViolation, ...otherViolations]);
   if (firestoreDb) {
     try {
       await setDoc(
@@ -619,7 +622,8 @@ export const recordViolationRealtime = async (
   if (realtimeDb && channelId) {
     update(ref(realtimeDb, `live_proctor/${channelId}/${subId}`), sanitizeForFirebase({
       violationsCount: updatedViolations.length,
-      lastViolation: violation,
+      lastViolation: cleanViolation,
+      violations: updatedViolations,
       isFlagged: true,
       lastActiveTime: new Date().toISOString(),
     })).catch(() => {});
