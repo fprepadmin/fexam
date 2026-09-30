@@ -548,7 +548,7 @@ class FexamStorage {
     if (target) {
       Object.assign(target, updates, { lastActiveTime: new Date().toISOString() });
       localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(subs));
-      updateSubmissionLiveFirestore(submissionId, updates, target.sessionId);
+      updateSubmissionLiveFirestore(submissionId, updates, target.sessionId || target.examId);
       this.notify();
     }
   }
@@ -563,7 +563,7 @@ class FexamStorage {
       target.isFlagged = true;
       target.lastActiveTime = new Date().toISOString();
       localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(subs));
-      recordViolationRealtime(submissionId, target.sessionId, violation, target.violations);
+      recordViolationRealtime(submissionId, target.sessionId || target.examId, violation, target.violations);
       this.notify();
     }
   }

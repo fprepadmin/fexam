@@ -169,9 +169,12 @@ export const AdminOverview: React.FC<AdminOverviewProps> = ({
         </div>
 
         {/* Total Submissions */}
-        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-card space-y-3">
+        <div
+          onClick={() => onNavigate('admin_submissions')}
+          className="bg-white p-5 rounded-3xl border border-slate-100 shadow-card hover:border-brand-200 transition-all cursor-pointer group space-y-3"
+        >
           <div className="flex items-center justify-between">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
               <GraduationCap className="w-6 h-6" />
             </div>
             {totalViolations > 0 ? (

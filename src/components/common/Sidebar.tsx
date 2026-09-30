@@ -14,6 +14,7 @@ import {
   Zap,
   ArrowRightLeft,
   LogOut,
+  Award,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -32,6 +33,7 @@ export type TeacherView =
   | 'admin_teachers'
   | 'admin_sessions'
   | 'admin_exams'
+  | 'admin_submissions'
   | 'guide'
   | 'settings';
 
@@ -73,9 +75,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeColor: 'bg-rose-50 text-rose-600 border border-rose-100',
     },
     {
+      id: 'admin_submissions' as TeacherView,
+      label: 'Bài Nộp & Điểm Số',
+      icon: Award,
+      badge: 'Mới',
+      badgeColor: 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold',
+    },
+    {
       id: 'admin_exams' as TeacherView,
-      label: 'Kho Đề thi Hệ thống',
+      label: 'Kho Đề thi Toàn trường',
       icon: FileText,
+      badge: 'Chỉ xem',
+      badgeColor: 'bg-slate-100 text-slate-700 border border-slate-200',
     },
     {
       id: 'settings' as TeacherView,

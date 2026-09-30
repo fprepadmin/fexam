@@ -150,16 +150,35 @@ export const StudentEntry: React.FC<StudentEntryProps> = ({
 
       // Helper function to resolve exam for session
       const resolveExamForSession = async (sess: ExamSession): Promise<Exam | null> => {
+        // 1. Try match in local memory exams
         let matchingExam = allExams.find(
-          (e) => e.id === sess.examId || (sess.examCode && e.code === sess.examCode)
+          (e) =>
+            (sess.examId && (e.id === sess.examId || e.id?.toUpperCase() === sess.examId.toUpperCase())) ||
+            (sess.examCode && (e.code?.toUpperCase() === sess.examCode.toUpperCase() || e.id?.toUpperCase() === sess.examCode.toUpperCase()))
         );
+
+        // 2. Query Firestore by examId
         if (!matchingExam || !matchingExam.questions || matchingExam.questions.length === 0) {
-          const remoteExam = await fetchExamByIdOrCode(sess.examId || sess.examCode);
-          if (remoteExam) {
-            matchingExam = remoteExam;
-            storage.saveExam(remoteExam);
+          if (sess.examId) {
+            const remoteExam = await fetchExamByIdOrCode(sess.examId);
+            if (remoteExam && remoteExam.questions && remoteExam.questions.length > 0) {
+              matchingExam = remoteExam;
+              storage.saveExam(remoteExam);
+            }
           }
         }
+
+        // 3. Query Firestore by examCode if still not found
+        if (!matchingExam || !matchingExam.questions || matchingExam.questions.length === 0) {
+          if (sess.examCode) {
+            const remoteExam = await fetchExamByIdOrCode(sess.examCode);
+            if (remoteExam && remoteExam.questions && remoteExam.questions.length > 0) {
+              matchingExam = remoteExam;
+              storage.saveExam(remoteExam);
+            }
+          }
+        }
+
         return matchingExam || null;
       };
 

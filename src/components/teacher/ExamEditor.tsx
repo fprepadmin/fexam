@@ -24,9 +24,11 @@ import {
 } from 'lucide-react';
 import { Exam, Question, QuestionType, ExamSettings, TrueFalseItem } from '../../types';
 import { useExam } from '../../context/ExamContext';
-import { parseDocxFile, parseExamText } from '../../lib/word-parser';
+import { parseDocxFile, parseExamText, safeParseExamJson } from '../../lib/word-parser';
 import { uploadImageToCloudinary } from '../../services/cloudinary';
 import { MathRenderer } from '../../lib/katex-renderer';
+import { auditAndFixExamQuestions } from '../../lib/grading';
+import { Wrench } from 'lucide-react';
 
 interface ExamEditorProps {
   initialExam?: Exam | null;
@@ -39,7 +41,7 @@ export const ExamEditor: React.FC<ExamEditorProps> = ({
   onBack,
   onSaveComplete,
 }) => {
-  const { saveExam } = useExam();
+  const { saveExam, regradeSubmissions, submissions } = useExam();
 
   const [activeTab, setActiveTab] = useState<'visual' | 'word' | 'json' | 'settings'>('visual');
 
@@ -191,23 +193,41 @@ export const ExamEditor: React.FC<ExamEditorProps> = ({
   };
 
   const handleExecuteJsonImport = () => {
-    try {
-      const parsed = JSON.parse(jsonContent);
-      if (Array.isArray(parsed)) {
-        setQuestions(parsed);
-        alert(`Nhập thành công ${parsed.length} câu hỏi từ JSON!`);
-        setActiveTab('visual');
-      } else if (parsed.questions && Array.isArray(parsed.questions)) {
-        if (parsed.title) setTitle(parsed.title);
-        if (parsed.settings) setSettings(parsed.settings);
-        setQuestions(parsed.questions);
-        alert(`Nhập thành công ${parsed.questions.length} câu hỏi từ đề JSON!`);
-        setActiveTab('visual');
-      } else {
-        alert('Định dạng JSON không hợp lệ!');
-      }
-    } catch (err: any) {
-      alert('Lỗi định dạng JSON: ' + err?.message);
+    if (!jsonContent.trim()) {
+      alert('Vui lòng dán nội dung JSON vào ô nhập!');
+      return;
+    }
+    const { questions: parsedQuestions, title: extractedTitle, error } = safeParseExamJson(jsonContent);
+    if (error || parsedQuestions.length === 0) {
+      alert(`Lỗi định dạng JSON: ${error || 'Không tìm thấy danh sách câu hỏi hợp lệ!'}`);
+      return;
+    }
+    if (extractedTitle && !title) setTitle(extractedTitle);
+    setQuestions(parsedQuestions);
+    alert(`Nhập thành công ${parsedQuestions.length} câu hỏi từ JSON!`);
+    setActiveTab('visual');
+  };
+
+  const handleAutoAuditAndFix = () => {
+    if (questions.length === 0) {
+      alert('Vui lòng thêm câu hỏi vào đề thi trước khi kiểm tra!');
+      return;
+    }
+    const { fixedQuestions, issues, fixes } = auditAndFixExamQuestions(questions);
+    if (issues.length === 0) {
+      alert('Tuyệt vời! Toàn bộ các câu hỏi trong đề thi đã chuẩn định dạng và không phát hiện lỗi nào.');
+      return;
+    }
+    const confirmMsg = `Phát hiện ${issues.length} vấn đề trong đề thi:\n\n` +
+      issues.slice(0, 8).map((iss) => `• ${iss}`).join('\n') +
+      (issues.length > 8 ? `\n... và ${issues.length - 8} vấn đề khác.\n\n` : '\n\n') +
+      `Hệ thống đã chuẩn bị các bản sửa lỗi tự động:\n` +
+      fixes.slice(0, 8).map((fix) => `✓ ${fix}`).join('\n') +
+      `\n\nBạn có muốn áp dụng ngay các bản sửa lỗi tự động này không?`;
+
+    if (window.confirm(confirmMsg)) {
+      setQuestions(fixedQuestions);
+      alert('Đã tự động sửa lỗi và chuẩn hóa đề thi thành công!');
     }
   };
 
@@ -241,7 +261,16 @@ export const ExamEditor: React.FC<ExamEditorProps> = ({
     };
 
     saveExam(savedExam);
-    alert('Đã lưu đề thi thành công!');
+
+    const relatedSubs = submissions.filter((s) => s.examId === savedExam.id || (savedExam.code && s.examCode === savedExam.code));
+    if (relatedSubs.length > 0) {
+      if (window.confirm(`Đã lưu đề thi thành công!\n\nCó ${relatedSubs.length} bài nộp của học sinh liên quan đến đề thi này. Bạn có muốn tự động CHẤM LẠI tất cả các bài thi đó theo đáp án mới sửa không?`)) {
+        const count = regradeSubmissions(savedExam.id);
+        alert(`Đã tự động chấm lại và cập nhật điểm cho ${count} bài thi thành công!`);
+      }
+    } else {
+      alert('Đã lưu đề thi thành công!');
+    }
     onSaveComplete();
   };
 
@@ -265,10 +294,19 @@ export const ExamEditor: React.FC<ExamEditorProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            onClick={handleAutoAuditAndFix}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-200 shadow-xs transition-all hover:scale-[1.01] cursor-pointer"
+            title="Tự động kiểm tra phát hiện lỗi thiếu đáp án, sai barem điểm và tự sửa"
+          >
+            <Wrench className="w-4 h-4 text-amber-600" />
+            <span>Tự Động Kiểm Tra & Sửa Lỗi</span>
+          </button>
+
           <button
             onClick={handleSaveExam}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold shadow-md transition-all cursor-pointer"
+            className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-extrabold shadow-md shadow-brand-500/20 transition-all hover:scale-[1.01] cursor-pointer"
           >
             <Save className="w-4 h-4" />
             <span>Lưu đề thi</span>
@@ -399,77 +437,258 @@ export const ExamEditor: React.FC<ExamEditorProps> = ({
           </div>
 
           <div className="space-y-4">
-            {questions.map((q, qIndex) => (
-              <div key={q.id || qIndex} className="bg-white rounded-3xl p-6 border border-slate-100 shadow-card space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-7 h-7 rounded-xl bg-slate-900 text-white font-bold text-xs flex items-center justify-center">
-                      {qIndex + 1}
-                    </span>
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">
-                      {q.type === 'multiple_choice' ? '4 Lựa chọn' : q.type === 'true_false' ? 'Đúng / Sai' : 'Trả lời ngắn'}
-                    </span>
-                    <span className="text-xs font-semibold text-slate-400">
-                      Điểm: {q.points || 0.5}đ
-                    </span>
-                  </div>
-                  <button onClick={() => handleDeleteQuestion(qIndex)} className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+            {questions.map((q, qIndex) => {
+              const qPoints = q.points !== undefined && !isNaN(Number(q.points))
+                ? Number(q.points)
+                : (q.type === 'true_false' ? 1.0 : q.type === 'short_answer' ? 0.5 : 0.25);
 
-                <div>
-                  <textarea
-                    rows={3}
-                    value={q.prompt}
-                    onChange={(e) => handleUpdateQuestion(qIndex, { prompt: e.target.value })}
-                    className="w-full p-3 rounded-2xl border border-slate-200 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                  />
-                  <div className="mt-1.5 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700">
-                    <span className="font-semibold text-slate-400 mr-2">Xem trước:</span>
-                    <MathRenderer content={q.prompt} />
-                  </div>
-                </div>
+              return (
+                <div key={q.id || qIndex} className="bg-white rounded-3xl p-6 border border-slate-100 shadow-card space-y-4">
+                  {/* Card Header with Question Points & Barem Selector */}
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="w-7 h-7 rounded-xl bg-slate-900 text-white font-bold text-xs flex items-center justify-center">
+                        {qIndex + 1}
+                      </span>
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">
+                        {q.type === 'multiple_choice' ? '4 Lựa chọn' : q.type === 'true_false' ? 'Đúng / Sai 4 ý' : 'Trả lời ngắn'}
+                      </span>
 
-                {/* Multiple choice options */}
-                {q.type === 'multiple_choice' && q.options && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                    {q.options.map((opt, optIdx) => (
-                      <div
-                        key={opt.id}
-                        className={`p-3 rounded-2xl border flex items-center gap-2.5 transition-all ${
-                          q.correctOptionId === opt.id
-                            ? 'border-emerald-500 bg-emerald-50/60'
-                            : 'border-slate-200 bg-white'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateQuestion(qIndex, { correctOptionId: opt.id })}
-                          className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 cursor-pointer ${
-                            q.correctOptionId === opt.id
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
+                      {/* True/False Barem Selector */}
+                      {q.type === 'true_false' && (
+                        <select
+                          value={q.scoringModel || 'moet_2025'}
+                          onChange={(e) => handleUpdateQuestion(qIndex, { scoringModel: e.target.value as any })}
+                          className="px-2 py-1 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 bg-slate-50 focus:ring-2 focus:ring-brand-500 focus:outline-none"
                         >
-                          {opt.label}
-                        </button>
-                        <input
-                          type="text"
-                          value={opt.text}
-                          onChange={(e) => {
-                            const newOptions = [...q.options!];
-                            newOptions[optIdx] = { ...opt, text: e.target.value };
-                            handleUpdateQuestion(qIndex, { options: newOptions });
-                          }}
-                          className="w-full px-2 py-1 text-xs border border-transparent hover:border-slate-200 rounded-lg focus:border-brand-500 focus:outline-none"
-                        />
+                          <option value="moet_2025">Barem Bộ 2025 (10%-25%-50%-100%)</option>
+                          <option value="proportional">Chia đều 4 ý (mỗi ý 25%)</option>
+                        </select>
+                      )}
+                    </div>
+
+                    {/* Point Configuration Controls */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-slate-500 font-bold">Điểm câu này:</span>
+                      
+                      {/* Quick Point Preset Chips */}
+                      <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+                        {[0.25, 0.5, 1.0, 1.5, 2.0].map((pt) => (
+                          <button
+                            key={pt}
+                            type="button"
+                            onClick={() => handleUpdateQuestion(qIndex, { points: pt })}
+                            className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all ${
+                              Math.abs(qPoints - pt) < 0.001
+                                ? 'bg-brand-600 text-white shadow-2xs'
+                                : 'text-slate-600 hover:bg-white'
+                            }`}
+                          >
+                            {pt}đ
+                          </button>
+                        ))}
                       </div>
-                    ))}
+
+                      {/* Direct Custom Point Input */}
+                      <input
+                        type="number"
+                        step="0.05"
+                        min="0"
+                        value={qPoints}
+                        onChange={(e) => handleUpdateQuestion(qIndex, { points: Math.max(0, parseFloat(e.target.value) || 0) })}
+                        className="w-16 px-2 py-1 rounded-xl border border-slate-300 font-mono text-xs font-black text-brand-700 text-center focus:ring-2 focus:ring-brand-500 focus:outline-none bg-brand-50/40"
+                        title="Tự do nhập điểm số cho câu này"
+                      />
+
+                      <button
+                        onClick={() => handleDeleteQuestion(qIndex)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                        title="Xóa câu hỏi"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/* Question Prompt */}
+                  <div>
+                    <textarea
+                      rows={3}
+                      value={q.prompt}
+                      onChange={(e) => handleUpdateQuestion(qIndex, { prompt: e.target.value })}
+                      placeholder="Nhập nội dung câu hỏi (hỗ trợ công thức Toán KaTeX $...$)..."
+                      className="w-full p-3 rounded-2xl border border-slate-200 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                    />
+                    <div className="mt-1.5 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700">
+                      <span className="font-semibold text-slate-400 mr-2">Xem trước:</span>
+                      <MathRenderer content={q.prompt} />
+                    </div>
+                  </div>
+
+                  {/* MULTIPLE CHOICE OPTIONS */}
+                  {q.type === 'multiple_choice' && (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between text-xs text-slate-500 font-bold">
+                        <span>Lựa chọn A, B, C, D (Bấm vào chữ cái để chọn đáp án đúng):</span>
+                        <span className="text-emerald-700 font-bold">
+                          Đáp án đúng: {q.correctOptionId || 'Chưa chọn'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {(q.options || ['A', 'B', 'C', 'D'].map((lbl, i) => ({ id: `opt-${i}`, label: lbl, text: '' }))).map((opt, optIdx) => {
+                          const isCorrect = q.correctOptionId === opt.label || q.correctOptionId === opt.id;
+                          return (
+                            <div
+                              key={opt.id || optIdx}
+                              className={`p-3 rounded-2xl border flex items-center gap-2.5 transition-all ${
+                                isCorrect
+                                  ? 'border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-300'
+                                  : 'border-slate-200 bg-white'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateQuestion(qIndex, { correctOptionId: opt.label })}
+                                className={`w-7 h-7 rounded-xl text-xs font-bold flex items-center justify-center shrink-0 cursor-pointer transition-all ${
+                                  isCorrect
+                                    ? 'bg-emerald-600 text-white shadow-xs'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                                title={`Chọn ${opt.label} làm đáp án đúng`}
+                              >
+                                {opt.label}
+                              </button>
+                              <input
+                                type="text"
+                                value={opt.text}
+                                placeholder={`Nội dung lựa chọn ${opt.label}...`}
+                                onChange={(e) => {
+                                  const baseOpts = q.options && q.options.length === 4
+                                    ? q.options
+                                    : ['A', 'B', 'C', 'D'].map((lbl, i) => ({ id: `opt-${i}`, label: lbl, text: '' }));
+                                  const newOptions = [...baseOpts];
+                                  newOptions[optIdx] = { ...opt, text: e.target.value };
+                                  handleUpdateQuestion(qIndex, { options: newOptions });
+                                }}
+                                className="w-full px-2 py-1 text-xs border border-transparent hover:border-slate-200 rounded-lg focus:border-brand-500 focus:outline-none"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TRUE / FALSE 4 STATEMENTS */}
+                  {q.type === 'true_false' && (
+                    <div className="space-y-2 pt-1">
+                      <span className="text-xs text-slate-500 font-bold">
+                        4 Mệnh đề khẳng định a), b), c), d) và Đáp án tương ứng:
+                      </span>
+                      <div className="space-y-2">
+                        {(q.trueFalseItems || ['a', 'b', 'c', 'd'].map((lbl, i) => ({ id: `tf-${i}`, label: lbl, statement: '', isCorrect: true }))).map((item, itemIdx) => {
+                          const isItemTrue = typeof item.isCorrect === 'boolean'
+                            ? item.isCorrect
+                            : ['true', 'đúng', 'dung', '1'].includes(String(item.isCorrect).toLowerCase());
+
+                          return (
+                            <div key={item.id || itemIdx} className="p-3 rounded-2xl border border-slate-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                              <div className="flex items-center gap-2 flex-1">
+                                <span className="font-bold text-slate-800 text-xs w-6">{item.label})</span>
+                                <input
+                                  type="text"
+                                  value={item.statement}
+                                  placeholder={`Mệnh đề khẳng định ý ${item.label})...`}
+                                  onChange={(e) => {
+                                    const baseItems = q.trueFalseItems && q.trueFalseItems.length === 4
+                                      ? q.trueFalseItems
+                                      : ['a', 'b', 'c', 'd'].map((lbl, i) => ({ id: `tf-${i}`, label: lbl, statement: '', isCorrect: true }));
+                                    const newItems = [...baseItems];
+                                    newItems[itemIdx] = { ...item, statement: e.target.value };
+                                    handleUpdateQuestion(qIndex, { trueFalseItems: newItems });
+                                  }}
+                                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:border-brand-500 focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const baseItems = q.trueFalseItems && q.trueFalseItems.length === 4
+                                      ? q.trueFalseItems
+                                      : ['a', 'b', 'c', 'd'].map((lbl, i) => ({ id: `tf-${i}`, label: lbl, statement: '', isCorrect: true }));
+                                    const newItems = [...baseItems];
+                                    newItems[itemIdx] = { ...item, isCorrect: true };
+                                    handleUpdateQuestion(qIndex, { trueFalseItems: newItems });
+                                  }}
+                                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                                    isItemTrue
+                                      ? 'bg-emerald-600 text-white shadow-2xs'
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  ĐÚNG
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const baseItems = q.trueFalseItems && q.trueFalseItems.length === 4
+                                      ? q.trueFalseItems
+                                      : ['a', 'b', 'c', 'd'].map((lbl, i) => ({ id: `tf-${i}`, label: lbl, statement: '', isCorrect: true }));
+                                    const newItems = [...baseItems];
+                                    newItems[itemIdx] = { ...item, isCorrect: false };
+                                    handleUpdateQuestion(qIndex, { trueFalseItems: newItems });
+                                  }}
+                                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                                    !isItemTrue
+                                      ? 'bg-rose-600 text-white shadow-2xs'
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  SAI
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SHORT ANSWER ACCEPTED KEYS */}
+                  {q.type === 'short_answer' && (
+                    <div className="space-y-2 pt-1">
+                      <span className="text-xs text-slate-500 font-bold">
+                        Đáp án chấp nhận (các giá trị cách nhau bằng dấu phẩy, hỗ trợ số thập phân / phân số):
+                      </span>
+                      <input
+                        type="text"
+                        value={(q.shortAnswerCorrect || []).join(', ')}
+                        placeholder="VD: 5, 5.0, 5,0 hoặc 3/4, 0.75..."
+                        onChange={(e) => {
+                          const keys = e.target.value.split(',').map((k) => k.trim()).filter(Boolean);
+                          handleUpdateQuestion(qIndex, { shortAnswerCorrect: keys });
+                        }}
+                        className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 focus:border-brand-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
+
+                  {/* Question Explanation */}
+                  <div className="pt-2 border-t border-slate-100">
+                    <span className="text-[11px] text-slate-400 font-bold uppercase">Lời giải chi tiết (Tùy chọn):</span>
+                    <input
+                      type="text"
+                      value={q.explanation || ''}
+                      placeholder="Nhập lời giải hoặc hướng dẫn giải cho học sinh..."
+                      onChange={(e) => handleUpdateQuestion(qIndex, { explanation: e.target.value })}
+                      className="w-full mt-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:border-brand-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

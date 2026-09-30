@@ -25,11 +25,13 @@ export interface Question {
   trueFalseItems?: TrueFalseItem[];
   shortAnswerCorrect?: string[];
   caseSensitive?: boolean;
+  scoringModel?: 'moet_2025' | 'proportional' | 'custom'; // 'moet_2025' (10%-25%-50%-100%), 'proportional' (chia đều), 'custom' (tự do)
 }
 
 export type ScoreDisplayMode = 'immediate' | 'after_close' | 'hidden';
 export type ShowSolutionMode = 'always' | 'after_close' | 'never';
 export type AntiCheatLevel = 'none' | 'standard' | 'strict' | 'maximum';
+export type TrueFalseBarem = 'moet_2025' | 'proportional';
 
 export interface ExamSettings {
   durationMinutes: number;
@@ -45,6 +47,7 @@ export interface ExamSettings {
   allowReviewAnswers: boolean;
   requireFullscreen: boolean;
   maxViolationsAllowed: number;
+  scoringModel?: TrueFalseBarem; // Barem tính điểm chung cho câu đúng sai
   isPracticeMode?: boolean; // Chế độ Ôn tập & Luyện tập (tắt hoàn toàn chống gian lận)
   isPublished: boolean;
 }
@@ -145,6 +148,15 @@ export interface ViolationRecord {
   timestamp: string;
 }
 
+export interface QuestionTimelineEntry {
+  questionId: string;
+  questionOrder: number;
+  answeredAt: string;
+  timeSpentSeconds?: number;
+  summary?: string;
+  type?: QuestionType;
+}
+
 export interface StudentAnswer {
   questionId: string;
   type: QuestionType;
@@ -153,6 +165,8 @@ export interface StudentAnswer {
   shortAnswerText?: string;
   isCorrect?: boolean;
   awardedPoints?: number;
+  answeredAt?: string;
+  timeSpentSeconds?: number;
 }
 
 export type StudentExamStatus = 'not_started' | 'in_progress' | 'submitted' | 'disconnected' | 'flagged';
@@ -186,6 +200,9 @@ export interface ExamSubmission {
   isFlagged: boolean;
   teacherNote?: string;
   bonusMinutes?: number;
+  questionTimeline?: { [questionId: string]: QuestionTimelineEntry };
+  averageSpeedSecondsPerQuestion?: number;
+  lastAnsweredQuestion?: QuestionTimelineEntry;
 }
 
 export interface TeacherUser {

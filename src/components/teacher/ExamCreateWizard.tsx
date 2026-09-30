@@ -35,14 +35,15 @@ import {
   Loader2,
 } from 'lucide-react';
 import { Exam, Question, QuestionType, ExamSettings, TrueFalseItem, AntiCheatLevel, ScoreDisplayMode, ShowSolutionMode } from '../../types';
-import { useExam } from '../../context/ExamContext';
 import { useAuth } from '../../context/AuthContext';
+import { useExam } from '../../context/ExamContext';
 import {
   parseDocxFile,
   parseExamText,
   downloadSampleExamTemplate,
   downloadSampleJsonTemplate,
   FEXAM_AI_PROMPT_TEMPLATE,
+  safeParseExamJson,
 } from '../../lib/word-parser';
 import { uploadImageToCloudinary } from '../../services/cloudinary';
 import { MathRenderer } from '../../lib/katex-renderer';
@@ -289,36 +290,24 @@ export const ExamCreateWizard: React.FC<ExamCreateWizardProps> = ({
 
   // JSON import execute
   const handleExecuteJsonImport = () => {
-    try {
-      const parsed = JSON.parse(jsonInput);
-      const normalizeQuestions = (list: any[]): Question[] => {
-        return list.map((q, idx) => ({
-          ...q,
-          id: q.id && typeof q.id === 'string' && q.id.trim() ? q.id : `q-${idx + 1}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          order: q.order || idx + 1,
-          points: q.points !== undefined ? Number(q.points) : (q.type === 'true_false' ? 1.0 : q.type === 'short_answer' ? 0.5 : 0.25),
-          type: q.type || 'multiple_choice',
-          prompt: q.prompt || `Câu hỏi số ${idx + 1}`,
-        }));
-      };
-
-      if (Array.isArray(parsed)) {
-        const normalized = normalizeQuestions(parsed);
-        setQuestions(normalized);
-        alert(`Nhập thành công ${normalized.length} câu hỏi từ JSON!`);
-        setInputMode('visual');
-      } else if (parsed.questions && Array.isArray(parsed.questions)) {
-        if (parsed.title) setTitle(parsed.title);
-        const normalized = normalizeQuestions(parsed.questions);
-        setQuestions(normalized);
-        alert(`Nhập thành công ${normalized.length} câu hỏi từ JSON!`);
-        setInputMode('visual');
-      } else {
-        alert('Định dạng JSON không hợp lệ!');
-      }
-    } catch (err: any) {
-      alert('Lỗi cú pháp JSON: ' + err?.message);
+    if (!jsonInput.trim()) {
+      alert('Vui lòng dán nội dung JSON đề thi vào ô nhập!');
+      return;
     }
+
+    const { questions: parsedQuestions, title: extractedTitle, error } = safeParseExamJson(jsonInput);
+    if (error || parsedQuestions.length === 0) {
+      alert(`Lỗi cú pháp JSON: ${error || 'Không tìm thấy câu hỏi hợp lệ trong dữ liệu dán vào!'}`);
+      return;
+    }
+
+    if (extractedTitle && !title) {
+      setTitle(extractedTitle);
+    }
+
+    setQuestions(parsedQuestions);
+    alert(`Nhập thành công ${parsedQuestions.length} câu hỏi từ JSON (Đã tự động chuẩn hóa và phân tách các ý Đúng/Sai)!`);
+    setInputMode('visual');
   };
 
   const handleCopyAiPrompt = () => {

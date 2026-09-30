@@ -409,6 +409,230 @@ Lời giải: Vận tốc $v(t) = s'(t) = -t^2 + 12t = -(t-6)^2 + 36 \\le 36$. �
 }
 
 /**
+ * Helper to clean and safely parse JSON exported by AI or pasted by users.
+ * Automatically handles:
+ * - Markdown code blocks (```json ... ```)
+ * - Trailing commas and common escape errors
+ * - True/False question normalization (splits merged statements into 4 distinct items)
+ * - Multiple choice options normalization (ensures labels 'A','B','C','D' and correctOptionId)
+ * - Short answer array conversion
+ */
+export function safeParseExamJson(rawInput: string): { questions: Question[]; title?: string; error?: string } {
+  let cleaned = rawInput.trim();
+
+  // Strip markdown code fences if present
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  }
+
+  // Extract JSON array or object if surrounded by extra text
+  const firstBracket = cleaned.indexOf('[');
+  const firstBrace = cleaned.indexOf('{');
+
+  if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
+    const lastBracket = cleaned.lastIndexOf(']');
+    if (lastBracket !== -1 && lastBracket > firstBracket) {
+      cleaned = cleaned.slice(firstBracket, lastBracket + 1);
+    }
+  } else if (firstBrace !== -1) {
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (lastBrace !== -1 && lastBrace > firstBrace) {
+      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+    }
+  }
+
+  // Remove trailing commas before closing braces/brackets
+  cleaned = cleaned.replace(/,\s*([\]\}])/g, '$1');
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    let rawList: any[] = [];
+    let extractedTitle: string | undefined = undefined;
+
+    if (Array.isArray(parsed)) {
+      rawList = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.questions)) {
+        rawList = parsed.questions;
+        if (typeof parsed.title === 'string') extractedTitle = parsed.title;
+      } else {
+        return { questions: [], error: 'Cấu trúc JSON không chứa danh sách câu hỏi hợp lệ.' };
+      }
+    }
+
+    const normalizedQuestions: Question[] = rawList.map((q: any, idx: number) => {
+      const order = q.order || idx + 1;
+      let rawType: QuestionType = q.type || 'multiple_choice';
+
+      // Detect type if missing or malformed
+      if (q.trueFalseItems || q.type === 'true_false' || /đúng\s*[\/\-]\s*sai/i.test(q.type || '')) {
+        rawType = 'true_false';
+      } else if (q.shortAnswerCorrect || q.type === 'short_answer' || /trả\s*lời\s*ngắn/i.test(q.type || '')) {
+        rawType = 'short_answer';
+      }
+
+      let prompt = (typeof q.prompt === 'string' ? q.prompt : '').trim();
+      let explanation = typeof q.explanation === 'string' ? q.explanation.trim() : '';
+
+      // ── TYPE 1: TRUE / FALSE NORMALIZATION ──
+      if (rawType === 'true_false') {
+        let trueFalseItems: TrueFalseItem[] = [];
+
+        // Check if trueFalseItems is already provided as an array
+        if (Array.isArray(q.trueFalseItems) && q.trueFalseItems.length > 0) {
+          trueFalseItems = q.trueFalseItems.map((item: any, itemIdx: number) => {
+            const defaultLabel = ['a', 'b', 'c', 'd'][itemIdx] || `item_${itemIdx + 1}`;
+            const label = (item.label || item.id || defaultLabel).toLowerCase().replace(/[^a-d0-9]/g, '') || defaultLabel;
+            let statement = typeof item.statement === 'string' ? item.statement : (typeof item.text === 'string' ? item.text : '');
+
+            // Clean leading "a)", "b." from statement
+            statement = statement.replace(/^[a-d][\.\)\:\-\—\s]+/i, '').trim();
+
+            // Normalize isCorrect
+            const isCorrect =
+              typeof item.isCorrect === 'boolean'
+                ? item.isCorrect
+                : ['true', 'đúng', 'dung', 'đ', 't', '1'].includes(String(item.isCorrect || '').trim().toLowerCase());
+
+            return {
+              id: label,
+              label,
+              statement: statement || `Mệnh đề ý ${label}`,
+              isCorrect,
+            };
+          });
+        }
+
+        // If trueFalseItems is empty or has only 1 item while prompt contains sub-items (a, b, c, d)
+        if (trueFalseItems.length < 2 && prompt) {
+          const itemRegex = /(?:^|\n|\s{2,})([a-d])[\.\)\:\/]\s*([\s\S]*?)(?=(?:^|\n|\s{2,})[a-d][\.\)\:\/]|$)/gi;
+          const extracted: TrueFalseItem[] = [];
+          let match;
+          let firstItemPos = -1;
+
+          while ((match = itemRegex.exec(prompt)) !== null) {
+            if (firstItemPos === -1) firstItemPos = match.index;
+            const label = match[1].toLowerCase();
+            let text = match[2].trim();
+            let isCorrect = true;
+
+            const tfMatch = text.match(/(?:\[|\(|\-\s*|\—\s*)(Đúng|Sai|Đ|S|True|False|T|F)(?:\]|\)|\s*$)/i);
+            if (tfMatch) {
+              const val = tfMatch[1].toLowerCase();
+              isCorrect = ['đúng', 'đ', 'true', 't'].includes(val);
+              text = text.replace(tfMatch[0], '').trim();
+            }
+
+            extracted.push({
+              id: label,
+              label,
+              statement: text,
+              isCorrect,
+            });
+          }
+
+          if (extracted.length >= 2) {
+            trueFalseItems = extracted;
+            if (firstItemPos > 0) {
+              prompt = prompt.slice(0, firstItemPos).trim();
+            }
+          }
+        }
+
+        // Ensure 4 items exist
+        if (trueFalseItems.length === 0) {
+          trueFalseItems = [
+            { id: 'a', label: 'a', statement: 'Mệnh đề ý a', isCorrect: true },
+            { id: 'b', label: 'b', statement: 'Mệnh đề ý b', isCorrect: false },
+            { id: 'c', label: 'c', statement: 'Mệnh đề ý c', isCorrect: true },
+            { id: 'd', label: 'd', statement: 'Mệnh đề ý d', isCorrect: false },
+          ];
+        }
+
+        return {
+          id: q.id && typeof q.id === 'string' && q.id.trim() ? q.id : `q-${order}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          order,
+          type: 'true_false',
+          prompt: prompt || `Câu hỏi Đúng/Sai số ${order}`,
+          imageUrl: q.imageUrl || undefined,
+          points: q.points !== undefined && !isNaN(Number(q.points)) ? Number(q.points) : 1.0,
+          trueFalseItems,
+          explanation,
+        };
+      }
+
+      // ── TYPE 2: SHORT ANSWER NORMALIZATION ──
+      if (rawType === 'short_answer') {
+        let shortAnswerCorrect: string[] = [];
+        if (Array.isArray(q.shortAnswerCorrect)) {
+          shortAnswerCorrect = q.shortAnswerCorrect.map((s: any) => String(s).trim()).filter(Boolean);
+        } else if (typeof q.shortAnswerCorrect === 'string' || typeof q.correctAnswer === 'string' || typeof q.answer === 'string') {
+          const rawAns = String(q.shortAnswerCorrect || q.correctAnswer || q.answer || '').trim();
+          shortAnswerCorrect = rawAns.split(/[\;\|]/).map((s) => s.trim()).filter(Boolean);
+        }
+
+        if (shortAnswerCorrect.length === 0) {
+          shortAnswerCorrect = ['0'];
+        }
+
+        return {
+          id: q.id && typeof q.id === 'string' && q.id.trim() ? q.id : `q-${order}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          order,
+          type: 'short_answer',
+          prompt: prompt || `Câu hỏi trả lời ngắn số ${order}`,
+          imageUrl: q.imageUrl || undefined,
+          points: q.points !== undefined && !isNaN(Number(q.points)) ? Number(q.points) : 0.5,
+          shortAnswerCorrect,
+          explanation,
+        };
+      }
+
+      // ── TYPE 3: MULTIPLE CHOICE NORMALIZATION ──
+      let options = [
+        { id: 'A', label: 'A', text: 'Phương án A' },
+        { id: 'B', label: 'B', text: 'Phương án B' },
+        { id: 'C', label: 'C', text: 'Phương án C' },
+        { id: 'D', label: 'D', text: 'Phương án D' },
+      ];
+
+      if (Array.isArray(q.options) && q.options.length > 0) {
+        options = q.options.map((opt: any, optIdx: number) => {
+          const defaultLabel = ['A', 'B', 'C', 'D'][optIdx] || `Opt_${optIdx + 1}`;
+          const label = (opt.label || opt.id || defaultLabel).toUpperCase().replace(/[^A-D0-9]/g, '') || defaultLabel;
+          let text = typeof opt.text === 'string' ? opt.text : (typeof opt === 'string' ? opt : '');
+          text = text.replace(/^[A-D][\.\)\:\-\—\s]+/i, '').trim();
+
+          return {
+            id: label,
+            label,
+            text: text || `Phương án ${label}`,
+            imageUrl: opt.imageUrl || undefined,
+          };
+        });
+      }
+
+      let correctOptionId = (q.correctOptionId || q.correctAnswer || q.correctOption || 'A').toUpperCase().replace(/[^A-D]/g, '') || 'A';
+
+      return {
+        id: q.id && typeof q.id === 'string' && q.id.trim() ? q.id : `q-${order}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        order,
+        type: 'multiple_choice',
+        prompt: prompt || `Câu hỏi số ${order}`,
+        imageUrl: q.imageUrl || undefined,
+        points: q.points !== undefined && !isNaN(Number(q.points)) ? Number(q.points) : 0.25,
+        options,
+        correctOptionId,
+        explanation,
+      };
+    });
+
+    return { questions: normalizedQuestions, title: extractedTitle };
+  } catch (err: any) {
+    return { questions: [], error: err?.message || 'Lỗi cú pháp JSON.' };
+  }
+}
+
+/**
  * Tải file JSON đề thi mẫu chuẩn FEXAM
  */
 export function downloadSampleJsonTemplate() {
@@ -462,92 +686,123 @@ export function downloadSampleJsonTemplate() {
 }
 
 /**
- * Full master prompt to convert any PDF / Image / Text into FEXAM JSON format using AI
+ * Full master prompt to convert any PDF / Image / Text into FEXAM JSON format using AI.
+ * Fortified with strict anti-merging constraints for True/False questions and KaTeX compliance.
  */
-export const FEXAM_AI_PROMPT_TEMPLATE = `Bạn là chuyên gia chuyển đổi đề thi từ PDF / Ảnh / Word sang định dạng JSON của hệ thống khảo thí FEXAM (Chuẩn Bộ Giáo dục & Đào tạo 2025).
+export const FEXAM_AI_PROMPT_TEMPLATE = `Bạn là chuyên gia chuyển đổi tài liệu đề thi (PDF, Ảnh chụp, Word) thành định dạng JSON chuẩn FEXAM theo cấu trúc Đề thi Tốt nghiệp THPT 2025 của Bộ GD&ĐT.
 
-YÊU CẦU BẮT BUỘC:
-- Chuyển đổi TOÀN BỘ câu hỏi, KHÔNG bỏ sót bất kỳ câu nào dù khó hay có hình ảnh.
-- Chỉ trả về JSON thô (raw JSON), KHÔNG viết lời chào, KHÔNG giải thích, KHÔNG markdown code block.
-- Kết quả phải bắt đầu bằng [ và kết thúc bằng ] — copy thẳng được vào hệ thống.
+============================================================
+QUY TẮC CỐT LÕI BẮT BUỘC:
+============================================================
+1. Trả về DUY NHẤT một mảng JSON thô bắt đầu bằng [ và kết thúc bằng ].
+2. TUYỆT ĐỐI KHÔNG giải thích, KHÔNG chào hỏi, KHÔNG bọc văn bản ngoài JSON.
+3. Chuyển đổi TOÀN BỘ câu hỏi, KHÔNG được bỏ sót câu nào dù có hình vẽ.
+4. Công thức toán học/vật lý/hóa học BẮT BUỘC đặt trong cặp dấu $...$ (inline) hoặc $$...$$ (display block).
+   Ví dụ: $x = 1$, $\\frac{a}{b}$, $\\sqrt{x^2+1}$, $\\int_0^1 f(x)dx$, $\\lim_{x \\to 0} f(x)$, $\\vec{u}$.
 
-========================================
-1. QUY TẮC CÔNG THỨC TOÁN, LÝ, HÓA:
-========================================
-- Tất cả công thức, ký hiệu toán học, vật lý, hóa học BẮT BUỘC bọc trong $...$ (inline) hoặc $$...$$ (display block).
-- Cú pháp chuẩn:
-  + Phân số: $\\frac{a}{b}$
-  + Căn bậc hai: $\\sqrt{x}$, căn bậc n: $\\sqrt[3]{x}$
-  + Tích phân: $\\int_a^b f(x)dx$
-  + Giới hạn: $\\lim_{x \\to x_0} f(x)$
-  + Vectơ: $\\vec{u}$, $\\overrightarrow{AB}$
-  + Hình học: $\\perp$, $\\parallel$, $\\widehat{ABC}$, $\\Delta$
-  + Tập hợp: $\\mathbb{R}$, $\\mathbb{N}$, $\\in$, $\\notin$, $\\subset$
-  + Hóa học: $\\text{Fe} + 2\\text{HCl} \\rightarrow \\text{FeCl}_2 + \\text{H}_2\\uparrow$
+============================================================
+CÁC DẠNG CÂU HỎI & CẤU TRÚC JSON CHI TIẾT:
+============================================================
 
-========================================
-2. CÁC DẠNG CÂU HỎI ĐƯỢC HỖ TRỢ:
-========================================
-
-Dạng 1: "multiple_choice" (Trắc nghiệm 4 phương án A, B, C, D)
-- Mảng "options" gồm 4 phần tử id/label: "A", "B", "C", "D".
-- "correctOptionId": chữ cái đáp án đúng ("A" / "B" / "C" / "D").
+------------------------------------------------------------
+DẠNG 1: TRẮC NGHIỆM 4 LỰA CHỌN ("multiple_choice")
+------------------------------------------------------------
+- "type": "multiple_choice"
+- "prompt": Nội dung câu hỏi (chứa công thức $...$).
 - "points": 0.25
+- "options": Mảng ĐỦ 4 phần tử có id và label là "A", "B", "C", "D".
+- "correctOptionId": Chữ cái đáp án đúng DUY NHẤT ("A" / "B" / "C" / "D").
+- "explanation": Lời giải chi tiết (nếu có).
 
-Dạng 2: "true_false" (Đúng / Sai theo chuẩn 2025)
-- Mảng "trueFalseItems" gồm 4 mệnh đề id/label: "a", "b", "c", "d".
-- Mỗi mệnh đề có "statement" và "isCorrect" (true / false).
+------------------------------------------------------------
+DẠNG 2: CÂU HỎI ĐÚNG / SAI ("true_false") [QUAN TRỌNG: TUYỆT ĐỐI TUÂN THỦ]
+------------------------------------------------------------
+- "type": "true_false"
+- "prompt": CHỈ CHỨA PHẦN ĐỀ BÀI CHUNG / LỜI DẪN.
+  *** CẤM TUYỆT ĐỐI: KHÔNG ĐƯỢC để các ý a), b), c), d) dính trong "prompt"! ***
 - "points": 1.0
+- "trueFalseItems": Mảng BẮT BUỘC ĐỦ 4 MỆNH ĐỀ TÁCH RỜI BIỆT LẬP:
+  + Phần tử 1: { "id": "a", "label": "a", "statement": "Nội dung mệnh đề ý a", "isCorrect": true/false }
+  + Phần tử 2: { "id": "b", "label": "b", "statement": "Nội dung mệnh đề ý b", "isCorrect": true/false }
+  + Phần tử 3: { "id": "c", "label": "c", "statement": "Nội dung mệnh đề ý c", "isCorrect": true/false }
+  + Phần tử 4: { "id": "d", "label": "d", "statement": "Nội dung mệnh đề ý d", "isCorrect": true/false }
+  *** CHÚ Ý: "isCorrect" PHẢI là kiểu boolean (true hoặc false), KHÔNG dùng chuỗi "Đúng" hay "Sai"! ***
+  *** CHÚ Ý: "statement" KHÔNG cần viết lặp lại chữ "a)", "b)" ở đầu. ***
 
-Dạng 3: "short_answer" (Trả lời ngắn)
-- Mảng "shortAnswerCorrect" chứa tất cả đáp án đúng chấp nhận được, ví dụ: ["27", "27.0", "27 m/s"].
+------------------------------------------------------------
+DẠNG 3: TRẢ LỜI NGẮN ("short_answer")
+------------------------------------------------------------
+- "type": "short_answer"
+- "prompt": Nội dung câu hỏi tính toán.
 - "points": 0.5
+- "shortAnswerCorrect": Mảng chứa các đáp án được chấp nhận, ví dụ: ["27", "27 m/s", "27m/s", "27.0"].
 
-========================================
-3. XỬ LÝ HÌNH ẢNH / HÌNH VẼ TRONG ĐỀ THI:
-========================================
-- Nếu câu có hình minh họa (đồ thị, hình học, sơ đồ, bảng biến thiên):
-  + Ghi vào "prompt": "[Hình ảnh: Đồ thị hàm số y = f(x)]" hoặc "[Hình ảnh: Hình chóp S.ABCD]".
-  + Thêm trường "imageUrl": "" để giáo viên tải ảnh trực tiếp trên FEXAM.
+------------------------------------------------------------
+XỬ LÝ HÌNH ẢNH MINH HỌA:
+------------------------------------------------------------
+- Nếu câu hỏi có hình ảnh (đồ thị, hình không gian, sơ đồ, bảng biến thiên):
+  + Trong "prompt": thêm ghi chú "[Hình ảnh: Đồ thị hàm số y = f(x)]" hoặc "[Hình ảnh: Bảng biến thiên]".
+  + Thêm trường "imageUrl": "" để giáo viên tải ảnh lên sau.
 
-========================================
-4. CẤU TRÚC JSON MẪU BẮT BUỘC TRẢ VỀ:
-========================================
+============================================================
+VÍ DỤ MẪU CHUẨN JSON TRẢ VỀ:
+============================================================
 [
   {
     "order": 1,
     "type": "multiple_choice",
-    "prompt": "Cho hàm số $y = f(x)$ có bảng biến thiên như hình vẽ. Điểm cực đại của hàm số là:",
+    "prompt": "Cho hàm số $y = f(x)$ liên tục trên $\\mathbb{R}$ có bảng biến thiên như sau. Điểm cực đại của hàm số đã cho là:",
     "points": 0.25,
     "options": [
-      { "id": "A", "label": "A", "text": "$x = 1$" },
-      { "id": "B", "label": "B", "text": "$x = -2$" },
-      { "id": "C", "label": "C", "text": "$y = 3$" },
+      { "id": "A", "label": "A", "text": "$x = -1$" },
+      { "id": "B", "label": "B", "text": "$x = 2$" },
+      { "id": "C", "label": "C", "text": "$y = 4$" },
       { "id": "D", "label": "D", "text": "$x = 0$" }
     ],
     "correctOptionId": "A",
-    "explanation": "Dựa vào bảng biến thiên, đạo hàm $f'(x)$ đổi dấu từ dương sang âm tại $x = 1$ nên $x = 1$ là điểm cực đại."
+    "explanation": "Dựa vào bảng biến thiên, đạo hàm đổi dấu từ dương sang âm tại $x = -1$ nên điểm cực đại là $x = -1$."
   },
   {
     "order": 2,
     "type": "true_false",
-    "prompt": "Cho tứ diện $OABC$ có $OA, OB, OC$ đôi một vuông góc và $OA = OB = OC = a$.",
+    "prompt": "Cho hàm số bậc ba $y = f(x) = ax^3 + bx^2 + cx + d$ có đồ thị như hình vẽ.",
     "points": 1.0,
     "trueFalseItems": [
-      { "id": "a", "label": "a", "statement": "Tam giác $ABC$ là tam giác đều cạnh $a\\sqrt{2}$", "isCorrect": true },
-      { "id": "b", "label": "b", "statement": "Thể tích khối tứ diện $OABC$ bằng $\\frac{a^3}{3}$", "isCorrect": false },
-      { "id": "c", "label": "c", "statement": "Đường thẳng $OA$ vuông góc với mặt phẳng $(OBC)$", "isCorrect": true },
-      { "id": "d", "label": "d", "statement": "Khoảng cách từ $O$ đến mặt phẳng $(ABC)$ bằng $\\frac{a}{\\sqrt{3}}$", "isCorrect": true }
+      {
+        "id": "a",
+        "label": "a",
+        "statement": "Hàm số đồng biến trên khoảng $(-\\infty; 0)$ và $(2; +\\infty)$.",
+        "isCorrect": true
+      },
+      {
+        "id": "b",
+        "label": "b",
+        "statement": "Giá trị cực tiểu của hàm số đã cho bằng $-2$.",
+        "isCorrect": true
+      },
+      {
+        "id": "c",
+        "label": "c",
+        "statement": "Điểm uốn của đồ thị hàm số là $I(1; 0)$.",
+        "isCorrect": true
+      },
+      {
+        "id": "d",
+        "label": "d",
+        "statement": "Phương trình $f(x) - 1 = 0$ có đúng 1 nghiệm thực.",
+        "isCorrect": false
+      }
     ],
-    "explanation": "a) $AB = BC = CA = \\sqrt{a^2+a^2} = a\\sqrt{2}$ (Đúng).\\nb) $V=\\frac{1}{6}OA\\cdot OB\\cdot OC=\\frac{a^3}{6}$ nên ý b Sai.\\nc) $OA\\perp OB$ và $OA\\perp OC\\Rightarrow OA\\perp(OBC)$ (Đúng).\\nd) $h=\\frac{a}{\\sqrt{3}}$ (Đúng)."
+    "explanation": "a) Đồ thị đi lên trên $(-\\infty; 0)$ và $(2; +\\infty)$ (Đúng).\\nb) Điểm cực tiểu $(2; -2)$ nên $y_{CT} = -2$ (Đúng).\\nc) Tâm đối xứng $I(1; 0)$ (Đúng).\\nd) Đường thẳng $y = 1$ cắt đồ thị tại 3 điểm phân biệt nên có 3 nghiệm thực (Sai)."
   },
   {
     "order": 3,
     "type": "short_answer",
-    "prompt": "Cho hình phẳng $(H)$ giới hạn bởi $y = x^2$ và $y = 2x$. Tính thể tích khối tròn xoay khi quay $(H)$ quanh trục $Ox$:",
+    "prompt": "Một vật chuyển động theo phương trình $s(t) = -t^3 + 6t^2 + 2$ với $t$ tính bằng giây và $s$ tính bằng mét. Vận tốc lớn nhất của vật đạt được bằng bao nhiêu $m/s$?",
     "points": 0.5,
-    "shortAnswerCorrect": ["2.68", "64/15", "4.27"],
-    "explanation": "$V = \\pi\\int_0^2((2x)^2-(x^2)^2)dx = \\frac{64\\pi}{15}$."
+    "shortAnswerCorrect": ["12", "12 m/s", "12m/s"],
+    "explanation": "Vận tốc $v(t) = s'(t) = -3t^2 + 12t = -3(t-2)^2 + 12 \\le 12\\ m/s$. Đạt cực đại tại $t = 2s$."
   }
 ]`;
+
 

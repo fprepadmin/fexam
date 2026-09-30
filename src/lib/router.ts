@@ -26,11 +26,11 @@ export const ROUTES = {
   GUIDE: '/huong-dan',
   SETTINGS: '/cai-dat',
 
-  // Admin Workspace
   ADMIN_OVERVIEW: '/quan-tri',
   ADMIN_TEACHERS: '/quan-tri/giao-vien',
   ADMIN_SESSIONS: '/quan-tri/ca-thi',
   ADMIN_EXAMS: '/quan-tri/de-thi',
+  ADMIN_SUBMISSIONS: '/quan-tri/bai-nop',
 } as const;
 
 export type RoutePath = typeof ROUTES[keyof typeof ROUTES];
@@ -50,7 +50,13 @@ export function pathToRoute(pathname: string, search: string = ''): ParsedRoute 
     queryParams[key] = val;
   });
 
-  // 1. Landing & Auth
+  // 1. Check direct query parameters for student exam link (?session=... / ?exam=... / ?code=...)
+  const hasExamParam = queryParams['session'] || queryParams['exam'] || queryParams['code'];
+  if (hasExamParam && (normalizedPath === '/' || normalizedPath === '' || normalizedPath.startsWith('/hoc-sinh') || normalizedPath.startsWith('/thi'))) {
+    return { appFlow: 'student_portal', studentFlowState: 'entry', queryParams };
+  }
+
+  // 2. Landing & Auth
   if (normalizedPath === '/' || normalizedPath === '') {
     return { appFlow: 'landing', queryParams };
   }
@@ -61,7 +67,7 @@ export function pathToRoute(pathname: string, search: string = ''): ParsedRoute 
     return { appFlow: 'register', queryParams };
   }
 
-  // 2. Student Portal
+  // 3. Student Portal
   if (normalizedPath.startsWith('/hoc-sinh') || normalizedPath.startsWith('/student') || normalizedPath.startsWith('/thi')) {
     if (normalizedPath.includes('/lam-bai') || normalizedPath.includes('/room')) {
       return { appFlow: 'student_portal', studentFlowState: 'exam_room', queryParams };
@@ -122,6 +128,9 @@ export function pathToRoute(pathname: string, search: string = ''): ParsedRoute 
   }
   if (normalizedPath === '/quan-tri/de-thi' || normalizedPath === '/admin/exams') {
     return { appFlow: 'teacher_workspace', teacherView: 'admin_exams', queryParams };
+  }
+  if (normalizedPath === '/quan-tri/bai-nop' || normalizedPath === '/admin/submissions') {
+    return { appFlow: 'teacher_workspace', teacherView: 'admin_submissions', queryParams };
   }
 
   // Fallback default
@@ -195,6 +204,9 @@ export function getPathForView(
         break;
       case 'admin_exams':
         basePath = ROUTES.ADMIN_EXAMS;
+        break;
+      case 'admin_submissions':
+        basePath = ROUTES.ADMIN_SUBMISSIONS;
         break;
       default:
         basePath = ROUTES.OVERVIEW;

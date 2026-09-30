@@ -10,11 +10,16 @@ import {
   XCircle,
   Clock,
   FileSpreadsheet,
+  RotateCcw,
+  Edit3,
+  Calculator,
+  Sparkles,
 } from 'lucide-react';
 import { useExam } from '../../context/ExamContext';
 import { ExamSession, ExamSubmission } from '../../types';
 import { exportExamResultsToExcel } from '../../lib/excel-helper';
 import { MathRenderer } from '../../lib/katex-renderer';
+import { ManualGradingModal } from './ManualGradingModal';
 
 interface SessionAnalyticsViewProps {
   session: ExamSession;
@@ -25,9 +30,11 @@ export const SessionAnalyticsView: React.FC<SessionAnalyticsViewProps> = ({
   session,
   onBack,
 }) => {
-  const { exams, submissions } = useExam();
+  const { exams, submissions, regradeSubmissions, saveSubmission } = useExam();
   const [search, setSearch] = useState('');
   const [selectedSub, setSelectedSub] = useState<ExamSubmission | null>(null);
+  const [manualGradingSub, setManualGradingSub] = useState<ExamSubmission | null>(null);
+  const [regradingStatus, setRegradingStatus] = useState<string | null>(null);
 
   const exam = exams.find((e) => e.id === session.examId) || exams[0];
   const rawSessionSubs = submissions.filter(
@@ -66,6 +73,23 @@ export const SessionAnalyticsView: React.FC<SessionAnalyticsViewProps> = ({
     exportExamResultsToExcel(exam, sessionSubs);
   };
 
+  const handleBulkRegrade = () => {
+    if (!exam) return;
+    if (!window.confirm(`Bạn có muốn chấm lại TẤT CẢ bài thi của ca "${session.title}" theo đáp án đề thi hiện tại không?\nĐiểm số của các bài thi sẽ được tính toán lại ngay lập tức.`)) {
+      return;
+    }
+    const count = regradeSubmissions(exam.id, session.id);
+    setRegradingStatus(`Đã tự động chấm lại và cập nhật điểm cho ${count} bài thi!`);
+    setTimeout(() => setRegradingStatus(null), 3500);
+  };
+
+  const handleSaveManualGrading = (updatedSub: ExamSubmission) => {
+    saveSubmission(updatedSub);
+    if (selectedSub && selectedSub.id === updatedSub.id) {
+      setSelectedSub(updatedSub);
+    }
+  };
+
   const filteredSubs = sessionSubs.filter(
     (s) =>
       s.studentName.toLowerCase().includes(search.toLowerCase()) ||
@@ -73,6 +97,18 @@ export const SessionAnalyticsView: React.FC<SessionAnalyticsViewProps> = ({
       (s.mshs && s.mshs.toLowerCase().includes(search.toLowerCase())) ||
       (s.className && s.className.toLowerCase().includes(search.toLowerCase()))
   );
+
+  if (manualGradingSub && exam) {
+    return (
+      <ManualGradingModal
+        submission={manualGradingSub}
+        exam={exam}
+        session={session}
+        onClose={() => setManualGradingSub(null)}
+        onSave={handleSaveManualGrading}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 pb-12">
@@ -100,14 +136,32 @@ export const SessionAnalyticsView: React.FC<SessionAnalyticsViewProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={handleExportExcel}
-          className="flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all self-start md:self-auto"
-        >
-          <Download className="w-4 h-4" />
-          <span>Xuất Bảng Điểm Excel (.xlsx)</span>
-        </button>
+        <div className="flex items-center gap-2.5 flex-wrap self-start md:self-auto">
+          <button
+            onClick={handleBulkRegrade}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-brand-50 hover:bg-brand-100 text-brand-700 font-bold text-xs border border-brand-200 shadow-xs transition-all hover:scale-[1.01]"
+            title="Chấm lại tất cả bài thi theo đáp án chuẩn hiện tại"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Chấm Lại Toàn Bộ Bài</span>
+          </button>
+
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all hover:scale-[1.01]"
+          >
+            <Download className="w-4 h-4" />
+            <span>Xuất Bảng Điểm Excel (.xlsx)</span>
+          </button>
+        </div>
       </div>
+
+      {regradingStatus && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+          <Sparkles className="w-4 h-4 text-emerald-600" />
+          <span>{regradingStatus}</span>
+        </div>
+      )}
 
       {/* 4 Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -190,7 +244,7 @@ export const SessionAnalyticsView: React.FC<SessionAnalyticsViewProps> = ({
                 <th className="py-3 px-4">Điểm số (Thang 10)</th>
                 <th className="py-3 px-4">Thời gian làm</th>
                 <th className="py-3 px-4">Vi phạm</th>
-                <th className="py-3 px-4 text-right">Xem bài làm</th>
+                <th className="py-3 px-4 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -216,12 +270,21 @@ export const SessionAnalyticsView: React.FC<SessionAnalyticsViewProps> = ({
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      <button
-                        onClick={() => setSelectedSub(sub)}
-                        className="px-3 py-1.5 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-700 font-bold text-xs"
-                      >
-                        Chi tiết bài làm
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => setSelectedSub(sub)}
+                          className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors"
+                        >
+                          Xem bài làm
+                        </button>
+                        <button
+                          onClick={() => setManualGradingSub(sub)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-700 font-bold text-xs border border-brand-200 transition-colors"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Chấm thủ công / Sửa điểm</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -234,7 +297,7 @@ export const SessionAnalyticsView: React.FC<SessionAnalyticsViewProps> = ({
       {/* Selected Student Test Paper Inspector Dedicated Section */}
       {selectedSub && (
         <div className="bg-white rounded-3xl p-8 border border-brand-200 shadow-card space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 gap-3">
             <div>
               <span className="text-xs font-bold text-brand-600 uppercase">Chi tiết bài làm của thí sinh</span>
               <h3 className="text-xl font-extrabold text-slate-900 mt-1">
@@ -244,12 +307,21 @@ export const SessionAnalyticsView: React.FC<SessionAnalyticsViewProps> = ({
                 Điểm: {(selectedSub.score / (selectedSub.maxScore || 1)) * 10} / 10 · Vi phạm: {selectedSub.violations?.length || 0} lần
               </p>
             </div>
-            <button
-              onClick={() => setSelectedSub(null)}
-              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700"
-            >
-              Đóng chi tiết
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setManualGradingSub(selectedSub)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-xs font-bold text-white shadow-xs"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Chấm Điểm Thủ Công Từng Câu</span>
+              </button>
+              <button
+                onClick={() => setSelectedSub(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700"
+              >
+                Đóng chi tiết
+              </button>
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -261,11 +333,11 @@ export const SessionAnalyticsView: React.FC<SessionAnalyticsViewProps> = ({
                     <span className="font-bold text-slate-900">Câu {idx + 1}:</span>
                     {ans?.isCorrect ? (
                       <span className="inline-flex items-center gap-1 font-bold text-emerald-600">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Đúng (+{q.points}đ)
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Đúng (+{ans.awardedPoints ?? q.points ?? 1}đ)
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 font-bold text-rose-600">
-                        <XCircle className="w-3.5 h-3.5" /> Sai (0đ)
+                        <XCircle className="w-3.5 h-3.5" /> Sai ({ans?.awardedPoints ?? 0}đ)
                       </span>
                     )}
                   </div>

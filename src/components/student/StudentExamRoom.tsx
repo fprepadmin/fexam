@@ -101,6 +101,17 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
     violationsRef.current = violations;
   }, [violations]);
 
+  // Question answering speed & timeline tracker
+  const questionStartTimesRef = useRef<{ [qId: string]: number }>({});
+  const questionTimelineRef = useRef<{ [qId: string]: any }>(() => {
+    try {
+      const saved = localStorage.getItem(`fexam_timeline_${submissionId}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
   const [teacherMessage, setTeacherMessage] = useState<string | null>(null);
   const dismissedNoteRef = useRef<string | null>(null);
   const processedBonusMinutesRef = useRef<number>(0);
@@ -113,12 +124,28 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
   // Current question
   const currentQuestion = questionsList[currentQuestionIndex] || questionsList[0];
 
+  // Track start time on question switch
+  useEffect(() => {
+    if (currentQuestion && currentQuestion.id) {
+      if (!questionStartTimesRef.current[currentQuestion.id]) {
+        questionStartTimesRef.current[currentQuestion.id] = Date.now();
+      }
+    }
+  }, [currentQuestionIndex, currentQuestion?.id]);
+
   // 1. Initial Submission Creation on Server / Local (Guard against overwriting already submitted exam)
   useEffect(() => {
-    const existing = submissions.find(
-      (s) => s.id === submissionId || (s.studentCode === studentCode && (s.sessionId === session?.id || s.examId === exam.id))
+    const isPractice = Boolean(
+      session?.sessionType === 'practice' ||
+      session?.antiCheatLevel === 'none' ||
+      exam.settings.isPracticeMode ||
+      exam.settings.antiCheatLevel === 'none'
     );
-    if (existing && existing.status === 'submitted') {
+
+    const existing = submissions.find(
+      (s) => s.id === submissionId || (!isPractice && studentCode && studentCode !== 'student' && s.studentCode === studentCode && (s.sessionId === session?.id || s.examId === exam.id))
+    );
+    if (existing && existing.status === 'submitted' && !isPractice) {
       onFinishExam(existing);
       return;
     }
@@ -147,6 +174,8 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
         totalQuestions: questionsList.length,
         violations: [],
         isFlagged: false,
+        questionTimeline: {},
+        averageSpeedSecondsPerQuestion: 0,
       };
       saveSubmission(initialSub);
     }
@@ -224,10 +253,11 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
         questionId: qId,
         type: 'multiple_choice' as const,
         selectedOptionId: optionLabel,
+        answeredAt: new Date().toISOString(),
       },
     };
     setAnswers(newAnswers);
-    saveLocalAndSync(newAnswers);
+    saveLocalAndSync(newAnswers, qId, `Chọn đáp án [${optionLabel}]`);
     soundEngine.playNotice();
   };
 
@@ -240,10 +270,11 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
         questionId: qId,
         type: 'true_false' as const,
         trueFalseAnswers: updatedTF,
+        answeredAt: new Date().toISOString(),
       },
     };
     setAnswers(newAnswers);
-    saveLocalAndSync(newAnswers);
+    saveLocalAndSync(newAnswers, qId, `Chọn ý ${itemId.toUpperCase()}: ${value ? 'ĐÚNG' : 'SAI'}`);
   };
 
   // Short answer with Keystroke Dynamics Analysis (Anti-AutoType Macro)
@@ -268,18 +299,23 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
         questionId: qId,
         type: 'short_answer' as const,
         shortAnswerText: text,
+        answeredAt: new Date().toISOString(),
       },
     };
     setAnswers(newAnswers);
-    saveLocalAndSync(newAnswers);
+    saveLocalAndSync(newAnswers, qId, `Nhập câu trả lời ngắn: "${text.slice(0, 20)}"`);
   };
 
   const toggleFlagQuestion = (qId: string) => {
     setFlaggedQuestions((prev) => ({ ...prev, [qId]: !prev[qId] }));
   };
 
-  // 6. Save Answers & Debounced Sync to Proctor
-  const saveLocalAndSync = (currentAnswers: { [qId: string]: StudentAnswer }) => {
+  // 6. Save Answers & Instant Sync to Proctor
+  const saveLocalAndSync = (
+    currentAnswers: { [qId: string]: StudentAnswer },
+    updatedQId?: string,
+    answerSummary?: string
+  ) => {
     localStorage.setItem(`fexam_answers_${submissionId}`, JSON.stringify(currentAnswers));
 
     let count = 0;
@@ -292,10 +328,39 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
       }
     });
 
+    const durationUsed = Math.max(1, totalSeconds - secondsRemaining);
+    const avgSpeed = count > 0 ? Math.round(durationUsed / count) : 0;
+
+    let lastAnsweredEntry = undefined;
+    if (updatedQId) {
+      const targetQ = questionsList.find((q) => q.id === updatedQId);
+      const startTime = questionStartTimesRef.current[updatedQId] || Date.now();
+      const timeSpent = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+      const entry = {
+        questionId: updatedQId,
+        questionOrder: targetQ?.order || 1,
+        answeredAt: new Date().toISOString(),
+        timeSpentSeconds: timeSpent,
+        summary: answerSummary || (currentAnswers[updatedQId]?.selectedOptionId || 'Đã trả lời'),
+        type: targetQ?.type,
+      };
+      questionTimelineRef.current = {
+        ...questionTimelineRef.current,
+        [updatedQId]: entry,
+      };
+      localStorage.setItem(`fexam_timeline_${submissionId}`, JSON.stringify(questionTimelineRef.current));
+      lastAnsweredEntry = entry;
+      // Reset start time for next answer modification if student revisits
+      questionStartTimesRef.current[updatedQId] = Date.now();
+    }
+
     updateLiveProgress(submissionId, {
       answers: currentAnswers,
       answeredCount: count,
-      durationSecondsUsed: totalSeconds - secondsRemaining,
+      durationSecondsUsed: durationUsed,
+      questionTimeline: questionTimelineRef.current,
+      averageSpeedSecondsPerQuestion: avgSpeed,
+      lastAnsweredQuestion: lastAnsweredEntry,
     });
   };
 
@@ -346,6 +411,8 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
       wrongCount,
       violations: finalViolations,
       isFlagged: finalViolations.length > 0,
+      questionTimeline: questionTimelineRef.current,
+      averageSpeedSecondsPerQuestion: answeredCount > 0 ? Math.round(durationUsed / answeredCount) : 0,
     };
 
     try {

@@ -544,35 +544,50 @@ export const saveSubmissionFirestore = async (sub: ExamSubmission) => {
   try {
     const clean = sanitizeForFirebase(sub);
     await setDoc(doc(firestoreDb, 'submissions', clean.id), clean, { merge: true });
-    // Also push to Realtime Database for instant teacher monitor
-    if (realtimeDb && clean.sessionId) {
+    // Also push to Realtime Database for instant teacher monitor (<50ms)
+    const channelId = clean.sessionId || clean.examId;
+    if (realtimeDb && channelId) {
       const rtdbPayload = sanitizeForFirebase({
         id: clean.id,
+        sessionId: clean.sessionId || '',
+        examId: clean.examId,
         studentName: clean.studentName,
         studentCode: clean.studentCode,
+        mshs: clean.mshs || '',
+        className: clean.className || '',
         status: clean.status,
         answeredCount: clean.answeredCount ?? 0,
+        totalQuestions: clean.totalQuestions ?? 0,
+        averageSpeedSecondsPerQuestion: clean.averageSpeedSecondsPerQuestion ?? 0,
+        questionTimeline: clean.questionTimeline || {},
+        lastAnsweredQuestion: clean.lastAnsweredQuestion || null,
+        answers: clean.answers || {},
         violationsCount: clean.violations?.length || 0,
+        lastViolation: clean.violations && clean.violations.length > 0 ? clean.violations[0] : null,
         lastActiveTime: clean.lastActiveTime || new Date().toISOString(),
         score: clean.score,
         bonusMinutes: clean.bonusMinutes || 0,
         teacherNote: clean.teacherNote || '',
       });
-      set(ref(realtimeDb, `live_proctor/${clean.sessionId}/${clean.id}`), rtdbPayload).catch(() => {});
+      set(ref(realtimeDb, `live_proctor/${channelId}/${clean.id}`), rtdbPayload).catch(() => {});
     }
   } catch (err) {
     console.error('Firestore saveSubmission error:', err);
   }
 };
 
-export const updateSubmissionLiveFirestore = async (subId: string, updates: Partial<ExamSubmission>, sessionId?: string) => {
+export const updateSubmissionLiveFirestore = async (
+  subId: string,
+  updates: Partial<ExamSubmission>,
+  channelId?: string
+) => {
   if (!firestoreDb) return;
   try {
     const clean = sanitizeForFirebase({ ...updates, lastActiveTime: new Date().toISOString() });
     const subRef = doc(firestoreDb, 'submissions', subId);
     await setDoc(subRef, clean, { merge: true });
-    if (realtimeDb && sessionId) {
-      update(ref(realtimeDb, `live_proctor/${sessionId}/${subId}`), clean).catch(() => {});
+    if (realtimeDb && channelId) {
+      update(ref(realtimeDb, `live_proctor/${channelId}/${subId}`), clean).catch(() => {});
     }
   } catch (err) {
     console.error('Firestore updateSubmission error:', err);
@@ -581,7 +596,7 @@ export const updateSubmissionLiveFirestore = async (subId: string, updates: Part
 
 export const recordViolationRealtime = async (
   subId: string,
-  sessionId: string,
+  channelId: string | undefined,
   violation: ViolationRecord,
   currentViolations: ViolationRecord[]
 ) => {
@@ -601,8 +616,8 @@ export const recordViolationRealtime = async (
       console.error('Firestore recordViolation error:', err);
     }
   }
-  if (realtimeDb && sessionId) {
-    update(ref(realtimeDb, `live_proctor/${sessionId}/${subId}`), sanitizeForFirebase({
+  if (realtimeDb && channelId) {
+    update(ref(realtimeDb, `live_proctor/${channelId}/${subId}`), sanitizeForFirebase({
       violationsCount: updatedViolations.length,
       lastViolation: violation,
       isFlagged: true,
@@ -628,6 +643,27 @@ export const subscribeLiveProctorSession = (
     },
     (err) => {
       console.warn('subscribeLiveProctorSession error:', err);
+    }
+  );
+};
+
+export const subscribeLiveProctorExam = (
+  examId: string,
+  callback: (data: Record<string, any>) => void
+): (() => void) | null => {
+  if (!realtimeDb || !examId) return null;
+  const proctorRef = ref(realtimeDb, `live_proctor/${examId}`);
+  return onValue(
+    proctorRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        callback(snapshot.val() || {});
+      } else {
+        callback({});
+      }
+    },
+    (err) => {
+      console.warn('subscribeLiveProctorExam error:', err);
     }
   );
 };

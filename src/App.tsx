@@ -23,6 +23,7 @@ import { AdminOverview } from './components/admin/AdminOverview';
 import { AdminTeachersView } from './components/admin/AdminTeachersView';
 import { AdminSessionsView } from './components/admin/AdminSessionsView';
 import { AdminExamsView } from './components/admin/AdminExamsView';
+import { AdminSubmissionsView } from './components/admin/AdminSubmissionsView';
 
 import { StudentEntry } from './components/student/StudentEntry';
 import { StudentExamRoom } from './components/student/StudentExamRoom';
@@ -38,6 +39,7 @@ const ADMIN_ONLY_VIEWS: TeacherView[] = [
   'admin_teachers',
   'admin_sessions',
   'admin_exams',
+  'admin_submissions',
   'settings',
 ];
 
@@ -619,14 +621,17 @@ function MainApp() {
             />
           )}
 
-          {/* 9. QUẢN LÝ KHO ĐỀ TOÀN TRƯỜNG */}
+          {/* 9. QUẢN LÝ KHO ĐỀ TOÀN TRƯỜNG (CHỈ XEM - KHÔNG TẠO CA THI) */}
           {currentView === 'admin_exams' && user?.role === 'admin' && (
-            <AdminExamsView
-              onCreateSessionForExam={handleCreateSessionForExam}
-            />
+            <AdminExamsView />
           )}
 
-          {/* 10. CÀI ĐẶT HỆ THỐNG & FIREBASE (CHỈ ADMIN) */}
+          {/* 10. QUẢN LÝ BÀI NỘP & BẢNG ĐIỂM TOÀN TRƯỜNG */}
+          {currentView === 'admin_submissions' && user?.role === 'admin' && (
+            <AdminSubmissionsView />
+          )}
+
+          {/* 11. CÀI ĐẶT HỆ THỐNG & FIREBASE (CHỈ ADMIN) */}
           {currentView === 'settings' && user?.role === 'admin' && <SettingsView />}
 
           {/* ========================================== */}

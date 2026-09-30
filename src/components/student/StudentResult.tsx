@@ -336,8 +336,8 @@ export const StudentResult: React.FC<StudentResultProps> = ({
                         {q.type === 'multiple_choice' && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                             {(q.options || []).map((opt) => {
-                              const isKey = opt.label === q.correctOptionId && showSolutions;
-                              const isStudentPick = ans?.selectedOptionId === opt.label;
+                              const isKey = (opt.label === q.correctOptionId || opt.id === q.correctOptionId) && showSolutions;
+                              const isStudentPick = ans?.selectedOptionId === opt.label || ans?.selectedOptionId === opt.id;
                               return (
                                 <div
                                   key={opt.id}
@@ -365,8 +365,23 @@ export const StudentResult: React.FC<StudentResultProps> = ({
                         {q.type === 'true_false' && q.trueFalseItems && (
                           <div className="space-y-2 pt-1">
                             {q.trueFalseItems.map((item) => {
-                              const studentVal = ans?.trueFalseAnswers?.[item.id];
-                              const isItemCorrect = studentVal === item.isCorrect;
+                              const rawStudentVal = ans?.trueFalseAnswers?.[item.id] !== undefined 
+                                ? ans?.trueFalseAnswers?.[item.id] 
+                                : ans?.trueFalseAnswers?.[item.label];
+                              
+                              const studentBool = typeof rawStudentVal === 'boolean'
+                                ? rawStudentVal
+                                : typeof rawStudentVal === 'string'
+                                ? ((rawStudentVal as string).toLowerCase() === 'true' || (rawStudentVal as string).toLowerCase() === 'đúng')
+                                : undefined;
+
+                              const itemCorrectBool = typeof item.isCorrect === 'boolean'
+                                ? item.isCorrect
+                                : typeof item.isCorrect === 'string'
+                                ? ((item.isCorrect as string).toLowerCase() === 'true' || (item.isCorrect as string).toLowerCase() === 'đúng')
+                                : false;
+
+                              const isItemCorrect = studentBool !== undefined && studentBool === itemCorrectBool;
                               return (
                                 <div
                                   key={item.id}
@@ -378,11 +393,13 @@ export const StudentResult: React.FC<StudentResultProps> = ({
                                   </div>
                                   <div className="flex items-center gap-2 text-[11px] shrink-0">
                                     <span>
-                                      Bạn chọn: <strong className={isItemCorrect ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold'}>{studentVal === true ? 'ĐÚNG' : studentVal === false ? 'SAI' : 'Chưa chọn'}</strong>
+                                      Bạn chọn: <strong className={studentBool === undefined ? 'text-slate-500' : isItemCorrect ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold'}>
+                                        {studentBool === true ? 'ĐÚNG' : studentBool === false ? 'SAI' : 'Chưa chọn'}
+                                      </strong>
                                     </span>
                                     {showSolutions && (
                                       <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
-                                        Đáp án: {item.isCorrect ? 'ĐÚNG' : 'SAI'}
+                                        Đáp án: {itemCorrectBool ? 'ĐÚNG' : 'SAI'}
                                       </span>
                                     )}
                                   </div>

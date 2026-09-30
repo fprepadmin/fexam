@@ -30,6 +30,7 @@ interface ExamContextType {
   addBonusMinutes: (subId: string, minutes: number) => void;
   sendTeacherMessage: (subId: string, message: string) => void;
   forceSubmitStudent: (subId: string) => void;
+  regradeSubmissions: (examId: string, sessionId?: string) => number;
   resetAllData: () => void;
 }
 
@@ -176,6 +177,41 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const regradeSubmissions = (examId: string, sessionId?: string): number => {
+    const targetExam = exams.find((e) => e.id === examId || e.code === examId);
+    if (!targetExam) return 0;
+
+    const targetSubs = submissions.filter((s) => {
+      const matchExam = s.examId === examId || (targetExam.code && s.examCode === targetExam.code);
+      if (!matchExam) return false;
+      if (sessionId && s.sessionId !== sessionId && s.sessionCode !== sessionId) return false;
+      return true;
+    });
+
+    let updatedCount = 0;
+    targetSubs.forEach((sub) => {
+      if (sub.status === 'submitted') {
+        const { scaledScore10, answeredCount, correctCount, gradedAnswers } = calculateExamScore(
+          targetExam.questions,
+          sub.answers || {}
+        );
+        const wrongCount = Math.max(0, answeredCount - correctCount);
+
+        const updated: ExamSubmission = {
+          ...sub,
+          score: scaledScore10,
+          answeredCount,
+          correctCount,
+          wrongCount,
+          answers: gradedAnswers,
+        };
+        storage.saveSubmission(updated);
+        updatedCount++;
+      }
+    });
+    return updatedCount;
+  };
+
   const resetAllData = () => {
     storage.clearAllData();
   };
@@ -202,6 +238,7 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addBonusMinutes,
         sendTeacherMessage,
         forceSubmitStudent,
+        regradeSubmissions,
         resetAllData,
       }}
     >
