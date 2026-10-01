@@ -1,4 +1,116 @@
-import { Question, StudentAnswer, TrueFalseItem, ExamSubmission } from '../types';
+import { Exam, ExamSession, Question, StudentAnswer, TrueFalseItem, ExamSubmission } from '../types';
+import { seededShuffle } from './anti-cheat';
+
+/**
+ * Deterministically generates the personalized question and option list for a student,
+ * correctly handling question shuffling and option shuffling with accurate correctOptionId tracking.
+ */
+export function getStudentQuestionsList(
+  exam: Exam,
+  session?: ExamSession | null,
+  studentCode?: string,
+  mshs?: string
+): Question[] {
+  const cleanStudentCodeKey = (studentCode || mshs || 'student').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  const raw = (exam.questions || []).map((q, idx) => ({
+    ...q,
+    id: q.id && typeof q.id === 'string' && q.id.trim() ? q.id : `q-${idx + 1}-${exam.id || 'exam'}`,
+    order: q.order || idx + 1,
+  }));
+
+  const shouldShuffleQuestions = Boolean(
+    session?.shuffleQuestions !== undefined
+      ? session.shuffleQuestions
+      : exam.settings?.shuffleQuestions
+  );
+  const shouldShuffleOptions = Boolean(
+    session?.shuffleOptions !== undefined
+      ? session.shuffleOptions
+      : exam.settings?.shuffleOptions
+  );
+
+  let result = raw;
+
+  // 1. Shuffle Questions if enabled
+  if (shouldShuffleQuestions) {
+    result = seededShuffle(raw, `${exam.id}_${cleanStudentCodeKey}_questions`).map((q, newIdx) => ({
+      ...q,
+      order: newIdx + 1, // Display order 1..N
+    }));
+  }
+
+  // 2. Shuffle Multiple Choice Options if enabled
+  if (shouldShuffleOptions) {
+    result = result.map((q) => {
+      if (q.type === 'multiple_choice' && q.options && q.options.length > 1) {
+        // 1. Identify which option was originally the correct one
+        const origTarget = (q.correctOptionId || 'A').trim().toUpperCase();
+        const correctOptIndex = q.options.findIndex(
+          (o) =>
+            (o.label && o.label.trim().toUpperCase() === origTarget) ||
+            (o.id && o.id.trim().toUpperCase() === origTarget) ||
+            (o.id && o.id.trim() === q.correctOptionId?.trim())
+        );
+        const correctOriginalOpt = correctOptIndex >= 0 ? q.options[correctOptIndex] : q.options[0];
+
+        // 2. Deterministic shuffle for this student & question
+        const shuffledOpts = seededShuffle(
+          q.options,
+          `${exam.id}_${cleanStudentCodeKey}_opt_${q.id}`
+        );
+
+        // 3. Re-assign clean visual labels (A, B, C, D) AND id to prevent any collision
+        const standardLabels = ['A', 'B', 'C', 'D', 'E', 'F'];
+        let newCorrectOptionId = 'A';
+
+        const reLabeledOpts = shuffledOpts.map((opt, oIdx) => {
+          const newLabel = standardLabels[oIdx] || String.fromCharCode(65 + oIdx);
+          if (
+            opt === correctOriginalOpt ||
+            (correctOriginalOpt && opt.id === correctOriginalOpt.id && opt.text === correctOriginalOpt.text)
+          ) {
+            newCorrectOptionId = newLabel;
+          }
+          return {
+            ...opt,
+            id: newLabel,
+            label: newLabel,
+          };
+        });
+
+        return {
+          ...q,
+          options: reLabeledOpts,
+          correctOptionId: newCorrectOptionId,
+        };
+      }
+      return q;
+    });
+  } else {
+    // When options are not shuffled, normalize option ids and labels to prevent any cross-collisions
+    result = result.map((q) => {
+      if (q.type === 'multiple_choice' && q.options && q.options.length > 0) {
+        const standardLabels = ['A', 'B', 'C', 'D', 'E', 'F'];
+        const normalizedOpts = q.options.map((opt, oIdx) => {
+          const label = opt.label || standardLabels[oIdx] || String.fromCharCode(65 + oIdx);
+          return {
+            ...opt,
+            id: opt.id || label,
+            label,
+          };
+        });
+        return {
+          ...q,
+          options: normalizedOpts,
+        };
+      }
+      return q;
+    });
+  }
+
+  return result;
+}
 
 /**
  * Grade a single question answer according to MOET 2025 standard
@@ -23,13 +135,16 @@ export function gradeQuestion(question: Question, answer?: StudentAnswer): { awa
 
       // Find if target corresponds to an option label or option ID
       const matchingOpt = (question.options || []).find(
-        (o) => o.label.toUpperCase() === target || o.id.toUpperCase() === target
+        (o) => (o.label && o.label.toUpperCase() === target) || (o.id && o.id.toUpperCase() === target)
       );
 
       // Check if student pick matches directly or matches label / id
       const isCorrect =
         selected === target ||
-        (matchingOpt && (selected === matchingOpt.label.toUpperCase() || selected === matchingOpt.id.toUpperCase()));
+        (matchingOpt && (
+          (matchingOpt.label && selected === matchingOpt.label.toUpperCase()) ||
+          (matchingOpt.id && selected === matchingOpt.id.toUpperCase())
+        ));
 
       return {
         awardedPoints: isCorrect ? maxPoints : 0,

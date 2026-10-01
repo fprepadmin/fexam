@@ -20,11 +20,11 @@ import {
 } from 'lucide-react';
 import { Exam, ExamSession, Question, StudentAnswer, ExamSubmission, ViolationRecord } from '../../types';
 import { useExam } from '../../context/ExamContext';
-import { calculateExamScore } from '../../lib/grading';
+import { calculateExamScore, getStudentQuestionsList } from '../../lib/grading';
 import { ObfuscatedText } from '../common/ObfuscatedText';
 import { ObfuscatedImage } from '../common/ObfuscatedImage';
 import { ExamGuard } from '../common/ExamGuard';
-import { KeystrokeDynamicsTracker, soundEngine, exitFullscreen, seededShuffle } from '../../lib/anti-cheat';
+import { KeystrokeDynamicsTracker, soundEngine, exitFullscreen } from '../../lib/anti-cheat';
 
 interface StudentExamRoomProps {
   exam: Exam;
@@ -65,66 +65,8 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
 
   // Current question list normalized with guaranteed unique IDs and deterministic per-student shuffling
   const questionsList = React.useMemo(() => {
-    const raw = (exam.questions || []).map((q, idx) => ({
-      ...q,
-      id: q.id && typeof q.id === 'string' && q.id.trim() ? q.id : `q-${idx + 1}-${exam.id || 'exam'}`,
-      order: q.order || idx + 1,
-    }));
-
-    const shouldShuffleQuestions = Boolean(
-      session?.shuffleQuestions !== undefined
-        ? session.shuffleQuestions
-        : exam.settings?.shuffleQuestions
-    );
-    const shouldShuffleOptions = Boolean(
-      session?.shuffleOptions !== undefined
-        ? session.shuffleOptions
-        : exam.settings?.shuffleOptions
-    );
-
-    let result = raw;
-
-    // 1. Shuffle Questions if enabled
-    if (shouldShuffleQuestions) {
-      result = seededShuffle(raw, `${exam.id}_${cleanStudentCodeKey}_questions`).map((q, newIdx) => ({
-        ...q,
-        order: newIdx + 1, // Display order 1..N
-      }));
-    }
-
-    // 2. Shuffle Multiple Choice Options if enabled
-    if (shouldShuffleOptions) {
-      result = result.map((q) => {
-        if (q.type === 'multiple_choice' && q.options && q.options.length > 1) {
-          const shuffledOpts = seededShuffle(
-            q.options,
-            `${exam.id}_${cleanStudentCodeKey}_opt_${q.id}`
-          );
-          // Re-assign visual labels A, B, C, D while keeping their option IDs
-          const standardLabels = ['A', 'B', 'C', 'D', 'E', 'F'];
-          const reLabeledOpts = shuffledOpts.map((opt, oIdx) => ({
-            ...opt,
-            label: standardLabels[oIdx] || opt.label,
-          }));
-          return {
-            ...q,
-            options: reLabeledOpts,
-          };
-        }
-        return q;
-      });
-    }
-
-    return result;
-  }, [
-    exam.questions,
-    exam.id,
-    session?.shuffleQuestions,
-    session?.shuffleOptions,
-    exam.settings?.shuffleQuestions,
-    exam.settings?.shuffleOptions,
-    cleanStudentCodeKey,
-  ]);
+    return getStudentQuestionsList(exam, session, studentCode, mshs);
+  }, [exam, session, studentCode, mshs]);
 
   // Navigation state
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -687,11 +629,11 @@ export const StudentExamRoom: React.FC<StudentExamRoomProps> = ({
               {currentQuestion.type === 'multiple_choice' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
                   {(currentQuestion.options || []).map((opt) => {
-                    const studentAns = answers[currentQuestion.id]?.selectedOptionId;
-                    const isSelected = studentAns === opt.label || studentAns === opt.id;
+                    const studentAns = (answers[currentQuestion.id]?.selectedOptionId || '').trim();
+                    const isSelected = Boolean(studentAns && (studentAns === opt.label || studentAns === opt.id));
                     return (
                       <button
-                        key={opt.id}
+                        key={opt.id || opt.label}
                         type="button"
                         onClick={() => handleSelectMultipleChoice(currentQuestion.id, opt.label)}
                         className={`p-4 rounded-2xl text-left border transition-all duration-150 flex items-center gap-3.5 cursor-pointer ${

@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { Exam, ExamSubmission, ExamSession, Question, StudentAnswer, TrueFalseBarem } from '../../types';
 import { MathRenderer } from '../../lib/katex-renderer';
-import { calculateExamScore, gradeQuestion, resolveStudentAnswer } from '../../lib/grading';
+import { calculateExamScore, gradeQuestion, resolveStudentAnswer, getStudentQuestionsList } from '../../lib/grading';
 
 export interface ManualGradingModalProps {
   isOpen?: boolean;
@@ -46,6 +46,11 @@ export const ManualGradingModal: React.FC<ManualGradingModalProps> = ({
   session,
   onSave,
 }) => {
+  // Questions list personalized for the student (with same deterministic shuffle if enabled)
+  const questionsList = React.useMemo(() => {
+    return getStudentQuestionsList(exam, session, submission.studentCode, submission.mshs);
+  }, [exam, session, submission.studentCode, submission.mshs]);
+
   // Clone answers for local editing
   const [editedAnswers, setEditedAnswers] = useState<{ [qId: string]: StudentAnswer }>({});
   const [teacherGeneralNote, setTeacherGeneralNote] = useState<string>('');
@@ -64,7 +69,7 @@ export const ManualGradingModal: React.FC<ManualGradingModalProps> = ({
     if (submission && exam) {
       const initial: { [qId: string]: StudentAnswer } = {};
       const initialBarem: Record<string, TrueFalseBarem> = {};
-      const questions = exam.questions || [];
+      const questions = questionsList;
 
       questions.forEach((q, idx) => {
         initialBarem[q.id] = (q.scoringModel as TrueFalseBarem) || exam.settings.scoringModel || 'moet_2025';
@@ -97,11 +102,9 @@ export const ManualGradingModal: React.FC<ManualGradingModalProps> = ({
       }
       setIsSaved(false);
     }
-  }, [submission, exam]);
+  }, [submission, exam, questionsList]);
 
   if (!submission || !exam) return null;
-
-  const questionsList = exam.questions || [];
 
   // Calculate live score from editedAnswers
   const calculateLiveScore = () => {

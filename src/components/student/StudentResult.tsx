@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Exam, ExamSubmission, ExamSession } from '../../types';
 import { MathRenderer } from '../../lib/katex-renderer';
+import { getStudentQuestionsList } from '../../lib/grading';
 
 interface StudentResultProps {
   exam: Exam;
@@ -86,6 +87,11 @@ export const StudentResult: React.FC<StudentResultProps> = ({
     submission.wrongCount ?? Math.max(0, submission.answeredCount - correctCount);
   const unanswered = Math.max(0, submission.totalQuestions - submission.answeredCount);
 
+  // Reconstruct exact questions order and options layout as the student saw during the exam
+  const studentQuestionsList = React.useMemo(() => {
+    return getStudentQuestionsList(exam, session, submission.studentCode, submission.mshs);
+  }, [exam, session, submission.studentCode, submission.mshs]);
+
   useEffect(() => {
     if (showScore && score10 >= 5.0) {
       confetti({ particleCount: 90, spread: 75, origin: { y: 0.55 } });
@@ -102,7 +108,7 @@ export const StudentResult: React.FC<StudentResultProps> = ({
 
   const scoreTier = getScoreTier(score10);
 
-  const filteredQuestions = exam.questions.filter((q) => {
+  const filteredQuestions = studentQuestionsList.filter((q) => {
     const ans = submission.answers?.[q.id];
     const isAnswered = ans && (
       (q.type === 'multiple_choice' && ans.selectedOptionId) ||
@@ -317,6 +323,7 @@ export const StudentResult: React.FC<StudentResultProps> = ({
                 ) : (
                   filteredQuestions.map((q) => {
                     const originalIdx = exam.questions.findIndex((orig) => orig.id === q.id);
+                    const qDisplayOrder = q.order || (originalIdx >= 0 ? originalIdx + 1 : 1);
                     const ans = submission.answers?.[q.id];
                     const isCorrect = ans?.isCorrect;
 
@@ -324,7 +331,7 @@ export const StudentResult: React.FC<StudentResultProps> = ({
                       <div key={q.id} className="p-5 sm:p-6 rounded-2xl bg-slate-50/90 border border-slate-200/80 space-y-4">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-extrabold text-brand-600 uppercase tracking-wider">
-                            Câu {originalIdx + 1} · {q.type === 'multiple_choice' ? 'Trắc nghiệm 4 lựa chọn' : q.type === 'true_false' ? 'Đúng / Sai 4 ý' : 'Trả lời ngắn'}
+                            Câu {qDisplayOrder} · {q.type === 'multiple_choice' ? 'Trắc nghiệm 4 lựa chọn' : q.type === 'true_false' ? 'Đúng / Sai 4 ý' : 'Trả lời ngắn'}
                           </span>
                           {showScore && (
                             isCorrect ? (
@@ -347,11 +354,11 @@ export const StudentResult: React.FC<StudentResultProps> = ({
                         {q.type === 'multiple_choice' && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                             {(q.options || []).map((opt) => {
-                              const isKey = (opt.label === q.correctOptionId || opt.id === q.correctOptionId) && showSolutions;
-                              const isStudentPick = ans?.selectedOptionId === opt.label || ans?.selectedOptionId === opt.id;
+                              const isKey = Boolean(q.correctOptionId && ((opt.label && opt.label.toUpperCase() === q.correctOptionId.trim().toUpperCase()) || (opt.id && opt.id.toUpperCase() === q.correctOptionId.trim().toUpperCase()))) && showSolutions;
+                              const isStudentPick = Boolean(ans?.selectedOptionId && (ans.selectedOptionId === opt.label || ans.selectedOptionId === opt.id));
                               return (
                                 <div
-                                  key={opt.id}
+                                  key={opt.id || opt.label}
                                   className={`p-3.5 rounded-xl text-xs border font-medium transition-all ${
                                     isKey
                                       ? 'border-emerald-300 bg-emerald-50 text-emerald-900 font-bold'
