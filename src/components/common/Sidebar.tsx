@@ -31,9 +31,6 @@ export type TeacherView =
   | 'class_detail'
   | 'admin_overview'
   | 'admin_teachers'
-  | 'admin_sessions'
-  | 'admin_exams'
-  | 'admin_submissions'
   | 'guide'
   | 'settings';
 
@@ -66,27 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Users,
       badge: 'Admin',
       badgeColor: 'bg-amber-100 text-amber-900 border border-amber-300 font-black',
-    },
-    {
-      id: 'admin_sessions' as TeacherView,
-      label: 'Ca thi Toàn trường',
-      icon: CalendarCheck,
-      badge: 'Live',
-      badgeColor: 'bg-rose-50 text-rose-600 border border-rose-100',
-    },
-    {
-      id: 'admin_submissions' as TeacherView,
-      label: 'Bài Nộp & Điểm Số',
-      icon: Award,
-      badge: 'Mới',
-      badgeColor: 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold',
-    },
-    {
-      id: 'admin_exams' as TeacherView,
-      label: 'Kho Đề thi Toàn trường',
-      icon: FileText,
-      badge: 'Chỉ xem',
-      badgeColor: 'bg-slate-100 text-slate-700 border border-slate-200',
     },
     {
       id: 'settings' as TeacherView,

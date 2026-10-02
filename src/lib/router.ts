@@ -28,9 +28,6 @@ export const ROUTES = {
 
   ADMIN_OVERVIEW: '/quan-tri',
   ADMIN_TEACHERS: '/quan-tri/giao-vien',
-  ADMIN_SESSIONS: '/quan-tri/ca-thi',
-  ADMIN_EXAMS: '/quan-tri/de-thi',
-  ADMIN_SUBMISSIONS: '/quan-tri/bai-nop',
 } as const;
 
 export type RoutePath = typeof ROUTES[keyof typeof ROUTES];
@@ -117,20 +114,20 @@ export function pathToRoute(pathname: string, search: string = ''): ParsedRoute 
   }
 
   // 4. Admin Views
-  if (normalizedPath === '/quan-tri' || normalizedPath === '/admin') {
+  if (
+    normalizedPath === '/quan-tri' ||
+    normalizedPath === '/admin' ||
+    normalizedPath === '/quan-tri/ca-thi' ||
+    normalizedPath === '/admin/sessions' ||
+    normalizedPath === '/quan-tri/de-thi' ||
+    normalizedPath === '/admin/exams' ||
+    normalizedPath === '/quan-tri/bai-nop' ||
+    normalizedPath === '/admin/submissions'
+  ) {
     return { appFlow: 'teacher_workspace', teacherView: 'admin_overview', queryParams };
   }
   if (normalizedPath === '/quan-tri/giao-vien' || normalizedPath === '/admin/teachers') {
     return { appFlow: 'teacher_workspace', teacherView: 'admin_teachers', queryParams };
-  }
-  if (normalizedPath === '/quan-tri/ca-thi' || normalizedPath === '/admin/sessions') {
-    return { appFlow: 'teacher_workspace', teacherView: 'admin_sessions', queryParams };
-  }
-  if (normalizedPath === '/quan-tri/de-thi' || normalizedPath === '/admin/exams') {
-    return { appFlow: 'teacher_workspace', teacherView: 'admin_exams', queryParams };
-  }
-  if (normalizedPath === '/quan-tri/bai-nop' || normalizedPath === '/admin/submissions') {
-    return { appFlow: 'teacher_workspace', teacherView: 'admin_submissions', queryParams };
   }
 
   // Fallback default
@@ -198,15 +195,6 @@ export function getPathForView(
         break;
       case 'admin_teachers':
         basePath = ROUTES.ADMIN_TEACHERS;
-        break;
-      case 'admin_sessions':
-        basePath = ROUTES.ADMIN_SESSIONS;
-        break;
-      case 'admin_exams':
-        basePath = ROUTES.ADMIN_EXAMS;
-        break;
-      case 'admin_submissions':
-        basePath = ROUTES.ADMIN_SUBMISSIONS;
         break;
       default:
         basePath = ROUTES.OVERVIEW;

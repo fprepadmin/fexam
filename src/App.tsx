@@ -21,9 +21,6 @@ import { HelpFeedback } from './components/teacher/HelpFeedback';
 import { SettingsView } from './components/teacher/SettingsView';
 import { AdminOverview } from './components/admin/AdminOverview';
 import { AdminTeachersView } from './components/admin/AdminTeachersView';
-import { AdminSessionsView } from './components/admin/AdminSessionsView';
-import { AdminExamsView } from './components/admin/AdminExamsView';
-import { AdminSubmissionsView } from './components/admin/AdminSubmissionsView';
 
 import { StudentEntry } from './components/student/StudentEntry';
 import { StudentExamRoom } from './components/student/StudentExamRoom';
@@ -37,9 +34,6 @@ export type AppFlowState = 'landing' | 'login' | 'register' | 'teacher_workspace
 const ADMIN_ONLY_VIEWS: TeacherView[] = [
   'admin_overview',
   'admin_teachers',
-  'admin_sessions',
-  'admin_exams',
-  'admin_submissions',
   'settings',
 ];
 
@@ -147,11 +141,13 @@ function MainApp() {
     let targetTeacherView = options?.teacherView || (flow === 'teacher_workspace' ? currentView : undefined);
     const targetStudentFlow = options?.studentFlowState || (flow === 'student_portal' ? studentFlowState : undefined);
 
-    // Strict RBAC Enforcement
+    // Strict RBAC Enforcement: Admin is 100% forbidden from exams, sessions, submissions, or student portal
     if (user?.role === 'teacher' && targetTeacherView && ADMIN_ONLY_VIEWS.includes(targetTeacherView)) {
       alert('Truy cập bị từ chối: Chức năng này chỉ dành riêng cho Quản trị viên (Admin). Bạn đã được chuyển về trang Tổng quan.');
       targetTeacherView = 'overview';
-    } else if (user?.role === 'admin' && targetTeacherView && TEACHER_ONLY_VIEWS.includes(targetTeacherView)) {
+    } else if (user?.role === 'admin' && ((targetTeacherView && !ADMIN_ONLY_VIEWS.includes(targetTeacherView)) || flow === 'student_portal')) {
+      alert('Truy cập bị từ chối: Quản trị viên (Admin) bị cấm 100% mọi quyền hạn và thông tin liên quan đến đề thi, ca thi, kiểm tra và bài làm.');
+      flow = 'teacher_workspace';
       targetTeacherView = 'admin_overview';
     }
 
@@ -606,39 +602,20 @@ function MainApp() {
           {currentView === 'admin_overview' && user?.role === 'admin' && (
             <AdminOverview
               onNavigate={(v) => navigate('teacher_workspace', { teacherView: v })}
-              onOpenSessionProctor={handleOpenSessionProctor}
             />
           )}
 
           {/* 7. QUẢN LÝ GIÁO VIÊN */}
           {currentView === 'admin_teachers' && user?.role === 'admin' && <AdminTeachersView />}
 
-          {/* 8. QUẢN LÝ CA THI TOÀN TRƯỜNG */}
-          {currentView === 'admin_sessions' && user?.role === 'admin' && (
-            <AdminSessionsView
-              onOpenProctor={handleOpenSessionProctor}
-              onOpenAnalytics={handleOpenSessionAnalytics}
-            />
-          )}
-
-          {/* 9. QUẢN LÝ KHO ĐỀ TOÀN TRƯỜNG (CHỈ XEM - KHÔNG TẠO CA THI) */}
-          {currentView === 'admin_exams' && user?.role === 'admin' && (
-            <AdminExamsView />
-          )}
-
-          {/* 10. QUẢN LÝ BÀI NỘP & BẢNG ĐIỂM TOÀN TRƯỜNG */}
-          {currentView === 'admin_submissions' && user?.role === 'admin' && (
-            <AdminSubmissionsView />
-          )}
-
-          {/* 11. CÀI ĐẶT HỆ THỐNG & FIREBASE (CHỈ ADMIN) */}
+          {/* 8. CÀI ĐẶT HỆ THỐNG & FIREBASE (CHỈ ADMIN) */}
           {currentView === 'settings' && user?.role === 'admin' && <SettingsView />}
 
           {/* ========================================== */}
           {/* ACCESS DENIED FALLBACK GUARD               */}
           {/* ========================================== */}
           {((ADMIN_ONLY_VIEWS.includes(currentView) && user?.role !== 'admin') ||
-            (TEACHER_ONLY_VIEWS.includes(currentView) && user?.role === 'admin')) && (
+            (!ADMIN_ONLY_VIEWS.includes(currentView) && user?.role === 'admin')) && (
             <div className="p-8 bg-white rounded-3xl border border-rose-200 text-center space-y-4 max-w-lg mx-auto my-12 shadow-sm animate-in fade-in duration-200">
               <div className="w-16 h-16 rounded-3xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200 shadow-xs">
                 <ShieldAlert className="w-8 h-8" />
@@ -646,12 +623,12 @@ function MainApp() {
               <h2 className="text-xl font-black text-slate-900">Truy Cập Bị Từ Chối</h2>
               <p className="text-xs text-slate-600 leading-relaxed">
                 {user?.role === 'admin'
-                  ? 'Tài khoản Quản trị viên (Admin) chỉ quản lý danh sách giáo viên, kho ca thi toàn trường và cấu hình hệ thống. Vui lòng chuyển sang trang Quản trị.'
+                  ? 'Tài khoản Quản trị viên (Admin) bị nghiêm cấm hoàn toàn 100% mọi thông tin liên quan đến đề thi, ngân hàng câu hỏi, ca kiểm tra và bài thi của học sinh. Bạn chỉ có quyền quản lý danh sách giáo viên và cấu hình máy chủ.'
                   : 'Trang này chỉ dành riêng cho Quản trị viên hệ thống (Admin). Tài khoản giáo viên không có quyền truy cập.'}
               </p>
               <button
                 onClick={() => navigate('teacher_workspace', { teacherView: user?.role === 'admin' ? 'admin_overview' : 'overview', replace: true })}
-                className="px-5 py-2.5 rounded-2xl bg-brand-600 text-white text-xs font-bold shadow-md hover:bg-brand-700 transition-colors"
+                className="px-5 py-2.5 rounded-2xl bg-brand-600 text-white text-xs font-bold shadow-md hover:bg-brand-700 transition-colors cursor-pointer"
               >
                 Về trang chính của bạn
               </button>
